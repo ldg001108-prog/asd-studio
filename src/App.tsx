@@ -2,9 +2,11 @@ import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { generateNukkiShots } from './lib/backgroundRemovalService';
 import { generateModelImage, MODEL_CATEGORIES, type ModelCategory } from './lib/modelGeneratorService';
 import { synthesizeShoeStudio } from './lib/shoeStudioService';
+import { generateDetailPage, assembleDetailPageHTML, type DetailPageResult } from './lib/detailPageService';
 import {
   uploadProductImage,
   uploadDataUrl,
+  uploadHtmlFile,
   listImages,
   deleteImage,
   listFolders,
@@ -16,7 +18,7 @@ import {
 interface NukkiFolder { name: string; images: { name: string; url: string }[]; isOpen: boolean }
 interface SavedImage { name: string; url: string }
 type AutoStatus = 'idle' | 'uploading' | 'generating' | 'saving' | 'done' | 'error';
-type ModalType = 'model-gen' | 'model-storage' | 'synthesis' | null;
+type ModalType = 'model-gen' | 'model-storage' | 'synthesis' | 'detail-13cut' | null;
 
 // ── Image Tile (extracted, memo'd to prevent re-mount on parent render) ──
 const ImageTile = memo(({ src, id, selected, square, onSelect, onZoom, onDelete }: {
@@ -71,11 +73,23 @@ function App() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [selectedNukkis, setSelectedNukkis] = useState<Set<string>>(new Set());
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
+  // Detail 9-cut
+  const [isDetailGenerating, setIsDetailGenerating] = useState(false);
+  const [detailStatus, setDetailStatus] = useState('');
+  const [detailResults, setDetailResults] = useState<DetailPageResult[]>([]);
+  const [detailNukkis, setDetailNukkis] = useState<Set<string>>(new Set());
+  const [detailModels, setDetailModels] = useState<Set<string>>(new Set());
+  const [detailProductName, setDetailProductName] = useState('Product');
+  const [detailFolders, setDetailFolders] = useState<NukkiFolder[]>([]);
+  const [templateBlocks, setTemplateBlocks] = useState<{ id: string; src: string }[]>([]);
+  const [templateDragOver, setTemplateDragOver] = useState(false);
+  const blockInputRef = useRef<HTMLInputElement>(null);
+  const [insertAtIdx, setInsertAtIdx] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const styleInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { loadNukkiFolders(); loadModelImages(); }, []);
+  useEffect(() => { loadNukkiFolders(); loadModelImages(); loadDetailFolders(); }, []);
 
   // ── Data Loading ──
   const loadNukkiFolders = async () => {
@@ -94,6 +108,17 @@ function App() {
   };
   const loadSynthesisImages = async () => {
     try { const imgs = await listImages('synthesis'); setSynthesisImages(imgs.map(i => ({ name: i.name, url: i.url }))); } catch (e) { console.warn(e); }
+  };
+  const loadDetailFolders = async () => {
+    try {
+      const folders = await listFolders('detail-13cut');
+      const data: NukkiFolder[] = [];
+      for (const f of folders) {
+        const imgs = await listImages(`detail-13cut/${f}`);
+        data.push({ name: f, images: imgs.map(i => ({ name: i.name, url: i.url })), isOpen: false });
+      }
+      setDetailFolders(data);
+    } catch (e) { console.warn('Detail folders load failed:', e); }
   };
 
   // ── Image Selection & Lightbox ──
@@ -231,10 +256,48 @@ function App() {
     setTimeout(() => { setSynthStatus(''); setIsSynthesizing(false); }, 2500);
   };
 
+  // ── Detail 9-Cut ──
+  const toggleDetailNukki = (url: string) => setDetailNukkis(p => { const n = new Set(p); n.has(url) ? n.delete(url) : n.add(url); return n; });
+  const toggleDetailModel = (url: string) => setDetailModels(p => { const n = new Set(p); n.has(url) ? n.delete(url) : n.add(url); return n; });
+
+  const handleGenerate13Cut = async () => {
+    if (isDetailGenerating || !detailNukkis.size || !detailModels.size) return;
+    setIsDetailGenerating(true);
+    setDetailResults([]);
+    setDetailStatus('준비 중...');
+    const sessionFolder = `detail-13cut/${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}`;
+    try {
+      const nukkiArr = Array.from(detailNukkis);
+      const modelArr = Array.from(detailModels);
+      const results = await generateDetailPage(
+        nukkiArr,
+        detailProductName,
+        modelArr,
+        (msg, current, total) => setDetailStatus(`[${current}/${total}] ${msg}`),
+        nukkiArr,
+      );
+      setDetailResults(results);
+      // Build 13-cut HTML (nukki 4 + AI 9 = 13 images in single column) — 개별 이미지 저장 없이 HTML 한 장으로 저장
+      setDetailStatus('📄 13컷 HTML 생성 중...');
+      const fullHtml = assembleDetailPageHTML(results, detailProductName);
+      try {
+        await uploadHtmlFile(fullHtml, sessionFolder, '13cut-detail');
+      } catch (e) { console.warn('HTML 저장 실패:', e); }
+      await loadDetailFolders();
+      const aiCount = results.filter(r => r.type === 'image' && r.imageUrl && !r.error).length;
+      const nukkiCount = results.filter(r => r.type === 'product_photos' && r.imageUrl).length;
+      setDetailStatus(`완료 — 누끼 ${nukkiCount}장 + AI ${aiCount}장 = ${nukkiCount + aiCount}장 HTML 저장 완료`);
+    } catch (e) {
+      setDetailStatus(`실패: ${e instanceof Error ? e.message : '알 수 없는 오류'}`);
+    }
+    setIsDetailGenerating(false);
+  };
+
   const openModal = (type: ModalType) => {
     setActiveModal(type);
     if (type === 'model-storage') loadModelImages();
     if (type === 'synthesis') { loadSynthesisImages(); loadModelImages(); loadNukkiFolders(); setSelectedNukkis(new Set()); setSelectedModels(new Set()); }
+    if (type === 'detail-13cut') { loadModelImages(); loadNukkiFolders(); setDetailNukkis(new Set()); setDetailModels(new Set()); }
   };
 
   const isBusy = ['uploading', 'generating', 'saving'].includes(autoStatus);
@@ -264,6 +327,10 @@ function App() {
         </button>
         <button type="button" className="toolbar-btn" onClick={() => openModal('synthesis')}>
           <span className="toolbar-btn-icon">◆</span> 합성
+        </button>
+        <button type="button" className="toolbar-btn" onClick={() => openModal('detail-13cut')}>
+          <span className="toolbar-btn-icon">◈</span> AI 13컷 합성
+          {isDetailGenerating && <span className="toolbar-badge pulse-badge">─</span>}
         </button>
       </div>
 
@@ -325,6 +392,144 @@ function App() {
             ))}
           </div>
         </div>
+
+        {/* Detail 13-Cut Storage — HTML only */}
+        <div className="storage-card">
+          <div className="card-head">
+            <span className="card-title">13컷 저장소</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {detailFolders.length > 0 && <span className="card-count">{detailFolders.length}</span>}
+            </div>
+          </div>
+          <div className="folder-list">
+            {detailFolders.length === 0 ? <div className="folder-empty">생성된 13컷 없음</div> : detailFolders.map(folder => {
+              const htmlFiles = folder.images.filter(img => img.name.endsWith('.html'));
+              if (htmlFiles.length === 0) return null;
+              return (
+                <div key={folder.name} className="folder-item">
+                  {htmlFiles.map(html => (
+                    <div
+                      key={html.name}
+                      className="html-list-item"
+                      draggable
+                      onDragStart={e => e.dataTransfer.setData('text/plain', html.url)}
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(html.url);
+                          const text = await res.text();
+                          const parser = new DOMParser();
+                          const doc = parser.parseFromString(text, 'text/html');
+                          const imgs = Array.from(doc.querySelectorAll('img'));
+                          setTemplateBlocks(imgs.map((img, i) => ({ id: `b${Date.now()}-${i}`, src: img.getAttribute('src') || '' })));
+                        } catch (e) { console.error('HTML load failed:', e); }
+                      }}
+                      title="클릭하여 편집기에 로드"
+                    >
+                      <span className="html-list-icon">📄</span>
+                      <span className="html-list-name">{folder.name}</span>
+                      <button className="html-list-del" onClick={async (e) => { e.stopPropagation(); await deleteImage(`detail-13cut/${folder.name}/${html.name}`); loadDetailFolders(); }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Detail Page Template Canvas — Block Editor */}
+        <div
+          className={`template-canvas${templateDragOver ? ' template-drag-over' : ''}`}
+          onDragOver={e => { e.preventDefault(); setTemplateDragOver(true); }}
+          onDragLeave={() => setTemplateDragOver(false)}
+          onDrop={async e => {
+            e.preventDefault();
+            setTemplateDragOver(false);
+            const url = e.dataTransfer.getData('text/plain');
+            if (!url) return;
+            try {
+              const res = await fetch(url);
+              const text = await res.text();
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(text, 'text/html');
+              const imgs = Array.from(doc.querySelectorAll('img'));
+              setTemplateBlocks(imgs.map((img, i) => ({ id: `b${Date.now()}-${i}`, src: img.getAttribute('src') || '' })));
+            } catch (e) { console.error('HTML drop failed:', e); }
+          }}
+        >
+          <div className="card-head">
+            <span className="card-title">상세페이지 템플릿</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {templateBlocks.length > 0 && <span className="card-count">{templateBlocks.length}장</span>}
+              {templateBlocks.length > 0 && (
+                <button className="card-head-action" title="새 탭에서 미리보기" onClick={() => {
+                  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>상세페이지</title><style>body{margin:0;padding:0;background:#fff} .c{max-width:860px;margin:0 auto} .c img{width:100%;display:block}</style></head><body><div class="c">${templateBlocks.map(b => `<img src="${b.src}" />`).join('')}</div></body></html>`;
+                  const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
+                  window.open(URL.createObjectURL(blob), '_blank');
+                }}>↗</button>
+              )}
+              {templateBlocks.length > 0 && (
+                <button className="card-head-action" title="HTML 저장" onClick={async () => {
+                  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${detailProductName} - 상세페이지</title><style>body{margin:0;padding:0;background:#fff} .c{max-width:860px;margin:0 auto} .c img{width:100%;display:block}</style></head><body><div class="c">${templateBlocks.map(b => `<img src="${b.src}" />`).join('')}</div></body></html>`;
+                  const folder = `detail-13cut/${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}`;
+                  try {
+                    await uploadHtmlFile(html, folder, '13cut-detail');
+                    await loadDetailFolders();
+                    setDetailStatus('✅ HTML 저장 완료');
+                  } catch (e) { console.error('Save failed:', e); }
+                }}>💾</button>
+              )}
+              {templateBlocks.length > 0 && <button className="card-head-action" title="초기화" onClick={() => setTemplateBlocks([])}>✕</button>}
+            </div>
+          </div>
+          <div className="template-body">
+            {/* Hidden file input for block insertion */}
+            <input
+              type="file"
+              accept="image/*"
+              ref={blockInputRef}
+              style={{ display: 'none' }}
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const src = reader.result as string;
+                  setTemplateBlocks(prev => {
+                    const next = [...prev];
+                    next.splice(insertAtIdx, 0, { id: `b${Date.now()}`, src });
+                    return next;
+                  });
+                };
+                reader.readAsDataURL(file);
+                e.target.value = '';
+              }}
+            />
+            {templateBlocks.length > 0 ? (
+              <div className="block-editor">
+                {/* Insert button at top */}
+                <button className="block-insert-btn" onClick={() => { setInsertAtIdx(0); blockInputRef.current?.click(); }}>+ 이미지 추가</button>
+                {templateBlocks.map((block, idx) => (
+                  <div key={block.id}>
+                    <div className="block-item">
+                      <img src={block.src} alt={`블록 ${idx + 1}`} className="block-img" />
+                      <div className="block-actions">
+                        <span className="block-badge">{idx + 1}</span>
+                        <button className="block-del" onClick={() => setTemplateBlocks(prev => prev.filter(b => b.id !== block.id))}>✕</button>
+                      </div>
+                    </div>
+                    {/* Insert button between blocks */}
+                    <button className="block-insert-btn" onClick={() => { setInsertAtIdx(idx + 1); blockInputRef.current?.click(); }}>+ 이미지 추가</button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="template-empty">
+                <span className="template-empty-icon">📋</span>
+                <span className="template-empty-text">13컷 저장소에서 드래그하거나 클릭하면<br/>여기에 블록 편집기가 열립니다</span>
+              </div>
+            )}
+          </div>
+        </div>
       </main>
 
       {/* ══ Modals ══ */}
@@ -336,6 +541,7 @@ function App() {
                 {activeModal === 'model-gen' && '모델 생성'}
                 {activeModal === 'model-storage' && '모델 저장소'}
                 {activeModal === 'synthesis' && '합성'}
+                {activeModal === 'detail-13cut' && 'AI 13컷 합성'}
               </h3>
               <button type="button" className="modal-x" onClick={() => setActiveModal(null)}>✕</button>
             </div>
@@ -431,6 +637,68 @@ function App() {
                   )}
                 </>
               )}
+              {activeModal === 'detail-13cut' && (
+                <>
+                  <div className="m-section">
+                    <span className="m-label">상품명</span>
+                    <input
+                      className="m-input"
+                      type="text"
+                      value={detailProductName}
+                      onChange={e => setDetailProductName(e.target.value)}
+                      placeholder="예: 블랙 레더 더비슈즈"
+                    />
+                  </div>
+                  <div className="m-section">
+                    <span className="m-label">누끼 선택 ({detailNukkis.size}장)</span>
+                    <div className="synth-grid">
+                      {allNukkiImages.map(img => {
+                        const key = img.url;
+                        return (
+                          <div key={`d13-n-${img.folder}-${img.name}`} className={`synth-thumb ${detailNukkis.has(key) ? 'synth-thumb-selected' : ''}`} onClick={() => toggleDetailNukki(key)}>
+                            <img src={img.url} alt="" />
+                            {detailNukkis.has(key) && <div className="synth-check">✓</div>}
+                          </div>
+                        );
+                      })}
+                      {!allNukkiImages.length && <div className="synth-empty">누끼 없음</div>}
+                    </div>
+                  </div>
+                  <div className="m-section">
+                    <span className="m-label">모델 선택 ({detailModels.size}장)</span>
+                    <div className="synth-grid">
+                      {modelImages.map(img => {
+                        const key = img.url;
+                        return (
+                          <div key={`d13-m-${img.name}`} className={`synth-thumb ${detailModels.has(key) ? 'synth-thumb-selected' : ''}`} onClick={() => toggleDetailModel(key)}>
+                            <img src={img.url} alt="" />
+                            {detailModels.has(key) && <div className="synth-check">✓</div>}
+                          </div>
+                        );
+                      })}
+                      {!modelImages.length && <div className="synth-empty">모델 없음</div>}
+                    </div>
+                  </div>
+                  {detailStatus && (
+                    <div className={`m-progress ${!isDetailGenerating ? 'm-progress-done' : ''}`}>
+                      {detailStatus}
+                    </div>
+                  )}
+                  <button type="button" className="btn-primary" disabled={!detailNukkis.size || !detailModels.size || isDetailGenerating} onClick={handleGenerate13Cut}>
+                    {isDetailGenerating ? '생성 중...' : `AI 13컷 생성 (누끼 ${detailNukkis.size} + AI 9장)`}
+                  </button>
+                  {detailResults.filter(r => (r.type === 'image' || r.type === 'product_photos') && r.imageUrl && !r.error).length > 0 && (
+                    <div className="m-section">
+                      <span className="m-label">결과 ({detailResults.filter(r => (r.type === 'image' || r.type === 'product_photos') && r.imageUrl && !r.error).length}장)</span>
+                      <div className="m-image-grid">
+                        {detailResults.filter(r => (r.type === 'image' || r.type === 'product_photos') && r.imageUrl && !r.error).map((r, i) => (
+                          <ImageTile key={`d13r-${i}`} src={r.imageUrl!} id={`d13-result-${i}`} selected={false} onSelect={() => {}} onZoom={tileZoom} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -456,7 +724,12 @@ function App() {
             <span className="statusbar-dot pulse" /> {synthStatus}
           </span>
         )}
-        {!isModelGenerating && !isSynthesizing && <span>Supabase · Gemini</span>}
+        {isDetailGenerating && (
+          <span className="statusbar-task" onClick={() => openModal('detail-13cut')}>
+            <span className="statusbar-dot pulse" /> {detailStatus}
+          </span>
+        )}
+        {!isModelGenerating && !isSynthesizing && !isDetailGenerating && <span>Supabase · Gemini</span>}
       </div>
     </div>
   );

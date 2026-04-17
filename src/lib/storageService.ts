@@ -180,6 +180,30 @@ export async function deleteImage(fullPath: string): Promise<void> {
   if (error) throw new Error(`삭제 실패: ${error.message}`);
 }
 
+/** HTML 문자열을 Supabase에 .html 파일로 업로드하고 public URL 반환 */
+export async function uploadHtmlFile(
+  htmlContent: string,
+  folder: string,
+  label?: string,
+): Promise<string> {
+  const blob = new Blob([htmlContent], { type: 'text/html; charset=utf-8' });
+  const path = label
+    ? `${folder}/${label}-${Date.now()}.html`
+    : `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`;
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, blob, {
+      contentType: 'text/html; charset=utf-8',
+      upsert: false,
+    });
+
+  if (error) throw new Error(`HTML 업로드 실패: ${error.message}`);
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
 /** URL에서 storage path 추출 */
 export function urlToPath(publicUrl: string): string {
   const marker = `/object/public/${BUCKET}/`;
