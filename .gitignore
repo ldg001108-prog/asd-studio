@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# build
+dist/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# ide
+.vscode/
+.idea/
+
+# os
+.DS_Store
+Thumbs.db
+
+# temp
+*.log
+cleanup-buckets.mjs
