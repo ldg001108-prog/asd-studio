@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { generateNukkiShots } from './lib/backgroundRemovalService';
 import { generateModelImage, MODEL_CATEGORIES, type ModelCategory } from './lib/modelGeneratorService';
 import { synthesizeShoeStudio } from './lib/shoeStudioService';
@@ -17,6 +17,38 @@ interface NukkiFolder { name: string; images: { name: string; url: string }[]; i
 interface SavedImage { name: string; url: string }
 type AutoStatus = 'idle' | 'uploading' | 'generating' | 'saving' | 'done' | 'error';
 type ModalType = 'model-gen' | 'model-storage' | 'synthesis' | null;
+
+// ── Image Tile (extracted, memo'd to prevent re-mount on parent render) ──
+const ImageTile = memo(({ src, id, selected, square, onSelect, onZoom, onDelete }: {
+  src: string; id: string; selected: boolean; square?: boolean;
+  onSelect: (id: string) => void; onZoom: (url: string) => void; onDelete?: () => void;
+}) => {
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (clickTimer.current) return; // double-click in progress
+    clickTimer.current = setTimeout(() => { clickTimer.current = null; onSelect(id); }, 220);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
+    onZoom(src);
+  };
+
+  return (
+    <div
+      className={`img-tile ${square ? 'img-tile-square' : ''} ${selected ? 'img-tile-selected' : ''}`}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+    >
+      <img src={src} alt="" />
+      {selected && <div className="img-tile-check">✓</div>}
+      {onDelete && <button className="img-tile-del" onClick={e => { e.stopPropagation(); onDelete(); }}>✕</button>}
+    </div>
+  );
+});
 
 function App() {
   const [nukkiFolders, setNukkiFolders] = useState<NukkiFolder[]>([]);
@@ -37,11 +69,13 @@ function App() {
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [selectedNukkis, setSelectedNukkis] = useState<Set<string>>(new Set());
+  const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const styleInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { loadNukkiFolders(); }, []);
+  useEffect(() => { loadNukkiFolders(); loadModelImages(); }, []);
 
   // ── Data Loading ──
   const loadNukkiFolders = async () => {
@@ -136,46 +170,79 @@ function App() {
   };
   const handleGenerateModel = async () => {
     if (!styleRefUrls.length || isModelGenerating) return;
-    setIsModelGenerating(true); setModelGenStatus('모델 생성 중...');
-    try {
-      const result = await generateModelImage(styleRefUrls, selectedCategory, msg => setModelGenStatus(msg));
-      setModelGenStatus('저장 중...'); await uploadDataUrl(result, 'models', selectedCategory);
-      setModelGenStatus('완료'); setTimeout(() => { setModelGenStatus(''); setIsModelGenerating(false); }, 2000);
-    } catch (e) { setModelGenStatus(`실패: ${e instanceof Error ? e.message : ''}`); setIsModelGenerating(false); }
+    setIsModelGenerating(true);
+    const total = styleRefUrls.length;
+    let successCount = 0;
+
+    for (let i = 0; i < total; i++) {
+      setModelGenStatus(`모델 생성 중 (${i + 1}/${total})...`);
+      try {
+        const result = await generateModelImage(
+          [styleRefUrls[i]],
+          selectedCategory,
+          msg => setModelGenStatus(`[${i + 1}/${total}] ${msg}`)
+        );
+        setModelGenStatus(`[${i + 1}/${total}] 저장 중...`);
+        await uploadDataUrl(result, 'models', selectedCategory);
+        successCount++;
+      } catch (e) {
+        console.error(`Model ${i + 1} failed:`, e);
+        setModelGenStatus(`[${i + 1}/${total}] 실패, 다음 진행...`);
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+
+    await loadModelImages();
+    setModelGenStatus(`${successCount}/${total}장 생성 완료`);
+    setTimeout(() => { setModelGenStatus(''); setIsModelGenerating(false); }, 2500);
   };
 
-  // ── Synthesis ──
-  const handleSynthesize = async (nukkiUrl: string, modelUrl: string) => {
-    if (isSynthesizing) return;
-    setIsSynthesizing(true); setSynthStatus('합성 중...');
-    try {
-      const result = await synthesizeShoeStudio(nukkiUrl, modelUrl, 'minimal', false, '2K', msg => setSynthStatus(msg));
-      setSynthStatus('저장 중...'); await uploadDataUrl(result, 'synthesis'); await loadSynthesisImages();
-      setSynthStatus('완료'); setTimeout(() => { setSynthStatus(''); setIsSynthesizing(false); }, 2000);
-    } catch (e) { setSynthStatus(`실패: ${e instanceof Error ? e.message : ''}`); setIsSynthesizing(false); }
+  // ── Synthesis (Batch) ──
+  const toggleSynthNukki = (url: string) => setSelectedNukkis(p => { const n = new Set(p); n.has(url) ? n.delete(url) : n.add(url); return n; });
+  const toggleSynthModel = (url: string) => setSelectedModels(p => { const n = new Set(p); n.has(url) ? n.delete(url) : n.add(url); return n; });
+
+  const handleBatchSynthesize = async () => {
+    if (isSynthesizing || !selectedNukkis.size || !selectedModels.size) return;
+    setIsSynthesizing(true);
+    const nukkiArr = Array.from(selectedNukkis);
+    const modelArr = Array.from(selectedModels);
+    const pairs: [string, string][] = [];
+    for (const n of nukkiArr) for (const m of modelArr) pairs.push([n, m]);
+    const total = pairs.length;
+    let successCount = 0;
+
+    for (let i = 0; i < total; i++) {
+      setSynthStatus(`합성 중 (${i + 1}/${total})...`);
+      try {
+        const result = await synthesizeShoeStudio(pairs[i][0], pairs[i][1], 'minimal', false, '2K', msg => setSynthStatus(`[${i + 1}/${total}] ${msg}`));
+        setSynthStatus(`[${i + 1}/${total}] 저장 중...`);
+        await uploadDataUrl(result, 'synthesis');
+        successCount++;
+      } catch (e) {
+        console.error(`Synthesis ${i + 1} failed:`, e);
+        setSynthStatus(`[${i + 1}/${total}] 실패, 다음 진행...`);
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+
+    await loadSynthesisImages();
+    setSynthStatus(`${successCount}/${total}장 합성 완료`);
+    setSelectedNukkis(new Set()); setSelectedModels(new Set());
+    setTimeout(() => { setSynthStatus(''); setIsSynthesizing(false); }, 2500);
   };
 
   const openModal = (type: ModalType) => {
     setActiveModal(type);
     if (type === 'model-storage') loadModelImages();
-    if (type === 'synthesis') { loadSynthesisImages(); loadModelImages(); loadNukkiFolders(); }
+    if (type === 'synthesis') { loadSynthesisImages(); loadModelImages(); loadNukkiFolders(); setSelectedNukkis(new Set()); setSelectedModels(new Set()); }
   };
 
   const isBusy = ['uploading', 'generating', 'saving'].includes(autoStatus);
   const allNukkiImages = nukkiFolders.flatMap(f => f.images.map(i => ({ ...i, folder: f.name })));
 
-  // ── Reusable Image Tile ──
-  const ImageTile = ({ src, id, onDelete, square }: { src: string; id: string; onDelete?: () => void; square?: boolean }) => (
-    <div
-      className={`img-tile ${square ? 'img-tile-square' : ''} ${selectedImages.has(id) ? 'img-tile-selected' : ''}`}
-      onClick={() => toggleSelect(id)}
-      onDoubleClick={() => openLightbox(src)}
-    >
-      <img src={src} alt="" />
-      {selectedImages.has(id) && <div className="img-tile-check">✓</div>}
-      {onDelete && <button className="img-tile-del" onClick={e => { e.stopPropagation(); onDelete(); }}>✕</button>}
-    </div>
-  );
+  // ImageTile helper props
+  const tileSelect = useCallback((id: string) => toggleSelect(id), []);
+  const tileZoom = useCallback((url: string) => openLightbox(url), []);
 
   return (
     <div className="app">
@@ -248,7 +315,7 @@ function App() {
                     {folder.images.length === 0 ? <div className="folder-empty-inner">이미지 없음</div> : (
                       <div className="folder-square-grid">
                         {folder.images.map(img => (
-                          <ImageTile key={img.name} src={img.url} id={`nukki-${folder.name}-${img.name}`} square onDelete={() => handleDeleteNukkiImage(folder.name, img.name)} />
+                          <ImageTile key={img.name} src={img.url} id={`nukki-${folder.name}-${img.name}`} selected={selectedImages.has(`nukki-${folder.name}-${img.name}`)} square onSelect={tileSelect} onZoom={tileZoom} onDelete={() => handleDeleteNukkiImage(folder.name, img.name)} />
                         ))}
                       </div>
                     )}
@@ -262,7 +329,7 @@ function App() {
 
       {/* ══ Modals ══ */}
       {activeModal && (
-        <div className="modal-overlay" onClick={() => !isModelGenerating && !isSynthesizing && setActiveModal(null)}>
+        <div className="modal-overlay" onClick={() => setActiveModal(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h3 className="modal-title">
@@ -297,8 +364,13 @@ function App() {
                       ))}
                     </div>
                   </div>
+                  {modelGenStatus && (
+                    <div className={`m-progress ${!isModelGenerating ? 'm-progress-done' : ''}`}>
+                      {modelGenStatus}
+                    </div>
+                  )}
                   <button type="button" className="btn-primary" disabled={!styleRefUrls.length || isModelGenerating} onClick={handleGenerateModel}>
-                    {isModelGenerating ? modelGenStatus : '모델 생성'}
+                    {isModelGenerating ? `생성 중...` : '모델 생성'}
                   </button>
                 </>
               )}
@@ -306,7 +378,7 @@ function App() {
                 modelImages.length === 0 ? <div className="m-empty">생성된 모델이 없습니다</div> : (
                   <div className="m-image-grid">
                     {modelImages.map(img => (
-                      <ImageTile key={img.name} src={img.url} id={`model-${img.name}`} onDelete={async () => { await deleteImage(`models/${img.name}`); loadModelImages(); }} />
+                      <ImageTile key={img.name} src={img.url} id={`model-${img.name}`} selected={selectedImages.has(`model-${img.name}`)} onSelect={tileSelect} onZoom={tileZoom} onDelete={async () => { await deleteImage(`models/${img.name}`); loadModelImages(); }} />
                     ))}
                   </div>
                 )
@@ -315,34 +387,44 @@ function App() {
                 <>
                   {synthStatus && <div className="m-status">{synthStatus}</div>}
                   <div className="m-section">
-                    <span className="m-label">누끼 + 모델 → 합성</span>
-                    <div className="synth-picker">
-                      <div>
-                        <div className="synth-header">누끼</div>
-                        <div className="synth-grid">
-                          {allNukkiImages.map(img => (
-                            <div key={`${img.folder}-${img.name}`} className="synth-thumb" onClick={() => { const m = modelImages[0]?.url; if (m) handleSynthesize(img.url, m); else alert('모델을 먼저 생성하세요'); }}>
-                              <img src={img.url} alt="" />
-                            </div>
-                          ))}
-                          {!allNukkiImages.length && <div className="synth-empty">없음</div>}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="synth-header">모델</div>
-                        <div className="synth-grid">
-                          {modelImages.map(img => (<div key={img.name} className="synth-thumb"><img src={img.url} alt="" /></div>))}
-                          {!modelImages.length && <div className="synth-empty">없음</div>}
-                        </div>
-                      </div>
+                    <span className="m-label">누끼 선택 ({selectedNukkis.size}장)</span>
+                    <div className="synth-grid">
+                      {allNukkiImages.map(img => {
+                        const key = img.url;
+                        return (
+                          <div key={`${img.folder}-${img.name}`} className={`synth-thumb ${selectedNukkis.has(key) ? 'synth-thumb-selected' : ''}`} onClick={() => toggleSynthNukki(key)}>
+                            <img src={img.url} alt="" />
+                            {selectedNukkis.has(key) && <div className="synth-check">✓</div>}
+                          </div>
+                        );
+                      })}
+                      {!allNukkiImages.length && <div className="synth-empty">없음</div>}
                     </div>
                   </div>
+                  <div className="m-section">
+                    <span className="m-label">모델 선택 ({selectedModels.size}장)</span>
+                    <div className="synth-grid">
+                      {modelImages.map(img => {
+                        const key = img.url;
+                        return (
+                          <div key={img.name} className={`synth-thumb ${selectedModels.has(key) ? 'synth-thumb-selected' : ''}`} onClick={() => toggleSynthModel(key)}>
+                            <img src={img.url} alt="" />
+                            {selectedModels.has(key) && <div className="synth-check">✓</div>}
+                          </div>
+                        );
+                      })}
+                      {!modelImages.length && <div className="synth-empty">없음</div>}
+                    </div>
+                  </div>
+                  <button type="button" className="btn-primary" disabled={!selectedNukkis.size || !selectedModels.size || isSynthesizing} onClick={handleBatchSynthesize}>
+                    {isSynthesizing ? synthStatus : `합성 시작 (${selectedNukkis.size} × ${selectedModels.size} = ${selectedNukkis.size * selectedModels.size}장)`}
+                  </button>
                   {synthesisImages.length > 0 && (
                     <div className="m-section">
-                      <span className="m-label">결과</span>
+                      <span className="m-label">결과 ({synthesisImages.length}장)</span>
                       <div className="m-image-grid">
                         {synthesisImages.map(img => (
-                          <ImageTile key={img.name} src={img.url} id={`synth-${img.name}`} onDelete={async () => { await deleteImage(`synthesis/${img.name}`); loadSynthesisImages(); }} />
+                          <ImageTile key={img.name} src={img.url} id={`synth-${img.name}`} selected={selectedImages.has(`synth-${img.name}`)} onSelect={tileSelect} onZoom={tileZoom} onDelete={async () => { await deleteImage(`synthesis/${img.name}`); loadSynthesisImages(); }} />
                         ))}
                       </div>
                     </div>
@@ -364,7 +446,17 @@ function App() {
 
       <div className="statusbar">
         <span>ASD Studio v0.2</span>
-        <span>Supabase · Gemini</span>
+        {isModelGenerating && (
+          <span className="statusbar-task" onClick={() => openModal('model-gen')}>
+            <span className="statusbar-dot pulse" /> {modelGenStatus}
+          </span>
+        )}
+        {isSynthesizing && (
+          <span className="statusbar-task" onClick={() => openModal('synthesis')}>
+            <span className="statusbar-dot pulse" /> {synthStatus}
+          </span>
+        )}
+        {!isModelGenerating && !isSynthesizing && <span>Supabase · Gemini</span>}
       </div>
     </div>
   );
