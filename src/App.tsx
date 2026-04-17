@@ -81,9 +81,10 @@ function App() {
   const [detailModels, setDetailModels] = useState<Set<string>>(new Set());
   const [detailProductName, setDetailProductName] = useState('Product');
   const [detailFolders, setDetailFolders] = useState<NukkiFolder[]>([]);
-  const [templateBlocks, setTemplateBlocks] = useState<{ id: string; src: string }[]>([]);
+  const [templateBlocks, setTemplateBlocks] = useState<{ id: string; type: 'image' | 'html'; src: string; html?: string }[]>([]);
   const [templateDragOver, setTemplateDragOver] = useState(false);
   const blockInputRef = useRef<HTMLInputElement>(null);
+  const htmlBlockInputRef = useRef<HTMLInputElement>(null);
   const [insertAtIdx, setInsertAtIdx] = useState(0);
   const [templateHtml, setTemplateHtml] = useState<string | null>(null);
   const [showPasteModal, setShowPasteModal] = useState(false);
@@ -424,7 +425,7 @@ function App() {
                           const parser = new DOMParser();
                           const doc = parser.parseFromString(text, 'text/html');
                           const imgs = Array.from(doc.querySelectorAll('img'));
-                          setTemplateBlocks(imgs.map((img, i) => ({ id: `b${Date.now()}-${i}`, src: img.getAttribute('src') || '' })));
+                          setTemplateBlocks(imgs.map((img, i) => ({ id: `b${Date.now()}-${i}`, type: 'image' as const, src: img.getAttribute('src') || '' })));
                         } catch (e) { console.error('HTML load failed:', e); }
                       }}
                       title="클릭하여 편집기에 로드"
@@ -456,7 +457,7 @@ function App() {
               const parser = new DOMParser();
               const doc = parser.parseFromString(text, 'text/html');
               const imgs = Array.from(doc.querySelectorAll('img'));
-              setTemplateBlocks(imgs.map((img, i) => ({ id: `b${Date.now()}-${i}`, src: img.getAttribute('src') || '' })));
+              setTemplateBlocks(imgs.map((img, i) => ({ id: `b${Date.now()}-${i}`, type: 'image' as const, src: img.getAttribute('src') || '' })));
             } catch (e) { console.error('HTML drop failed:', e); }
           }}
         >
@@ -513,7 +514,7 @@ function App() {
             </div>
           </div>
           <div className="template-body">
-            {/* Hidden file input for block insertion */}
+            {/* Hidden file inputs for block insertion */}
             <input
               type="file"
               accept="image/*"
@@ -527,7 +528,7 @@ function App() {
                   const src = reader.result as string;
                   setTemplateBlocks(prev => {
                     const next = [...prev];
-                    next.splice(insertAtIdx, 0, { id: `b${Date.now()}`, src });
+                    next.splice(insertAtIdx, 0, { id: `b${Date.now()}`, type: 'image', src });
                     return next;
                   });
                 };
@@ -535,21 +536,70 @@ function App() {
                 e.target.value = '';
               }}
             />
+            <input
+              type="file"
+              accept=".html,.htm"
+              ref={htmlBlockInputRef}
+              style={{ display: 'none' }}
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const html = reader.result as string;
+                  setTemplateBlocks(prev => {
+                    const next = [...prev];
+                    next.splice(insertAtIdx, 0, { id: `h${Date.now()}`, type: 'html', src: '', html });
+                    return next;
+                  });
+                };
+                reader.readAsText(file);
+                e.target.value = '';
+              }}
+            />
              {templateBlocks.length > 0 ? (
               <div className="block-editor">
-                {/* Insert button at top */}
-                <button className="block-insert-btn" onClick={() => { setInsertAtIdx(0); blockInputRef.current?.click(); }}>+ 이미지 추가</button>
+                {/* Insert buttons at top */}
+                <div className="block-insert-group">
+                  <button className="block-insert-btn" onClick={() => { setInsertAtIdx(0); blockInputRef.current?.click(); }}>🖼 이미지 추가</button>
+                  <button className="block-insert-btn" onClick={() => { setInsertAtIdx(0); htmlBlockInputRef.current?.click(); }}>📄 HTML 추가</button>
+                </div>
                 {templateBlocks.map((block, idx) => (
                   <div key={block.id}>
                     <div className="block-item">
-                      <img src={block.src} alt={`블록 ${idx + 1}`} className="block-img" />
+                      {block.type === 'html' ? (
+                        <iframe
+                          className="block-html-iframe"
+                          srcDoc={block.html}
+                          title={`HTML 블록 ${idx + 1}`}
+                          onLoad={e => {
+                            const iframe = e.currentTarget;
+                            const doc = iframe.contentDocument;
+                            if (doc) {
+                              doc.designMode = 'on';
+                              // Auto-resize iframe to content height
+                              const resize = () => {
+                                const h = doc.documentElement.scrollHeight;
+                                iframe.style.height = h + 'px';
+                              };
+                              resize();
+                              new MutationObserver(resize).observe(doc.body, { childList: true, subtree: true, characterData: true });
+                            }
+                          }}
+                        />
+                      ) : (
+                        <img src={block.src} alt={`블록 ${idx + 1}`} className="block-img" />
+                      )}
                       <div className="block-actions">
                         <span className="block-badge">{idx + 1}</span>
                         <button className="block-del" onClick={() => setTemplateBlocks(prev => prev.filter(b => b.id !== block.id))}>✕</button>
                       </div>
                     </div>
-                    {/* Insert button between blocks */}
-                    <button className="block-insert-btn" onClick={() => { setInsertAtIdx(idx + 1); blockInputRef.current?.click(); }}>+ 이미지 추가</button>
+                    {/* Insert buttons between blocks */}
+                    <div className="block-insert-group">
+                      <button className="block-insert-btn" onClick={() => { setInsertAtIdx(idx + 1); blockInputRef.current?.click(); }}>🖼 이미지 추가</button>
+                      <button className="block-insert-btn" onClick={() => { setInsertAtIdx(idx + 1); htmlBlockInputRef.current?.click(); }}>📄 HTML 추가</button>
+                    </div>
                   </div>
                 ))}
               </div>
