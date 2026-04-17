@@ -85,6 +85,10 @@ function App() {
   const [templateDragOver, setTemplateDragOver] = useState(false);
   const blockInputRef = useRef<HTMLInputElement>(null);
   const [insertAtIdx, setInsertAtIdx] = useState(0);
+  const [templateHtml, setTemplateHtml] = useState<string | null>(null);
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const editIframeRef = useRef<HTMLIFrameElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const styleInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -459,6 +463,7 @@ function App() {
           <div className="card-head">
             <span className="card-title">상세페이지 템플릿</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {/* Block mode buttons */}
               {templateBlocks.length > 0 && <span className="card-count">{templateBlocks.length}장</span>}
               {templateBlocks.length > 0 && (
                 <button className="card-head-action" title="새 탭에서 미리보기" onClick={() => {
@@ -479,6 +484,32 @@ function App() {
                 }}>💾</button>
               )}
               {templateBlocks.length > 0 && <button className="card-head-action" title="초기화" onClick={() => setTemplateBlocks([])}>✕</button>}
+              {/* HTML edit mode buttons */}
+              {templateHtml && (
+                <button className="card-head-action" title="새 탭에서 미리보기" onClick={() => {
+                  const iframe = editIframeRef.current;
+                  const html = iframe?.contentDocument?.documentElement.outerHTML || templateHtml;
+                  const blob = new Blob([`<!DOCTYPE html>${html}`], { type: 'text/html; charset=utf-8' });
+                  window.open(URL.createObjectURL(blob), '_blank');
+                }}>↗</button>
+              )}
+              {templateHtml && (
+                <button className="card-head-action" title="HTML 저장" onClick={async () => {
+                  const iframe = editIframeRef.current;
+                  const html = iframe?.contentDocument?.documentElement.outerHTML || templateHtml;
+                  const folder = `detail-13cut/${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}`;
+                  try {
+                    await uploadHtmlFile(`<!DOCTYPE html>${html}`, folder, '13cut-detail');
+                    await loadDetailFolders();
+                    setDetailStatus('✅ HTML 저장 완료');
+                  } catch (e) { console.error('Save failed:', e); }
+                }}>💾</button>
+              )}
+              {templateHtml && <button className="card-head-action" title="초기화" onClick={() => setTemplateHtml(null)}>✕</button>}
+              {/* Paste HTML button (always visible when no content) */}
+              {!templateBlocks.length && !templateHtml && (
+                <button className="card-head-action" title="HTML 붙여넣기" onClick={() => setShowPasteModal(true)}>📋</button>
+              )}
             </div>
           </div>
           <div className="template-body">
@@ -504,7 +535,7 @@ function App() {
                 e.target.value = '';
               }}
             />
-            {templateBlocks.length > 0 ? (
+             {templateBlocks.length > 0 ? (
               <div className="block-editor">
                 {/* Insert button at top */}
                 <button className="block-insert-btn" onClick={() => { setInsertAtIdx(0); blockInputRef.current?.click(); }}>+ 이미지 추가</button>
@@ -522,17 +553,60 @@ function App() {
                   </div>
                 ))}
               </div>
+            ) : templateHtml ? (
+              <iframe
+                ref={editIframeRef}
+                className="template-iframe"
+                title="HTML 편집기"
+                srcDoc={templateHtml}
+                onLoad={() => {
+                  const iframe = editIframeRef.current;
+                  if (iframe?.contentDocument) {
+                    iframe.contentDocument.designMode = 'on';
+                  }
+                }}
+              />
             ) : (
               <div className="template-empty">
                 <span className="template-empty-icon">📋</span>
-                <span className="template-empty-text">13컷 저장소에서 드래그하거나 클릭하면<br/>여기에 블록 편집기가 열립니다</span>
+                <span className="template-empty-text">13컷 저장소에서 드래그/클릭 또는<br/>HTML 붙여넣기로 시작하세요</span>
+                <button className="paste-html-btn" onClick={() => setShowPasteModal(true)}>📋 HTML 붙여넣기</button>
               </div>
             )}
           </div>
         </div>
       </main>
 
-      {/* ══ Modals ══ */}
+      {/* ══ Paste HTML Modal ══ */}
+      {showPasteModal && (
+        <div className="modal-overlay" onClick={() => setShowPasteModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+            <div className="modal-head">
+              <h3 className="modal-title">HTML 붙여넣기</h3>
+              <button className="modal-close" onClick={() => setShowPasteModal(false)}>✕</button>
+            </div>
+            <div style={{ padding: '16px' }}>
+              <textarea
+                className="paste-textarea"
+                placeholder="나노바나나에서 생성된 HTML 코드를 붙여넣으세요..."
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                rows={16}
+              />
+              <button
+                className="paste-apply-btn"
+                disabled={!pasteText.trim()}
+                onClick={() => {
+                  setTemplateHtml(pasteText);
+                  setTemplateBlocks([]);
+                  setShowPasteModal(false);
+                  setPasteText('');
+                }}
+              >적용하여 편집 시작</button>
+            </div>
+          </div>
+        </div>
+      )}
       {activeModal && (
         <div className="modal-overlay" onClick={() => setActiveModal(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
