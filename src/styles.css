@@ -1239,3 +1239,169 @@ input { font-family: var(--font); }
 .html-list-del:hover {
   color: var(--c-error);
 }
+
+/* ── 네이버 스마트스토어 모달 ── */
+.naver-modal-overlay {
+  position: fixed; inset: 0; z-index: 9998;
+  background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  animation: naver-fade-in 0.2s ease;
+}
+@keyframes naver-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes naver-scale-in { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.naver-modal {
+  width: 520px; max-width: 92vw; max-height: 85vh;
+  background: #fff; border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  display: flex; flex-direction: column;
+  animation: naver-scale-in 0.25s ease;
+}
+
+.naver-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid #f0f0f0;
+}
+.naver-header-left { display: flex; align-items: center; gap: 10px; }
+.naver-header-left h3 { font-size: 14px; font-weight: 700; color: #111; margin: 0; }
+.naver-header-left p { font-size: 11px; color: #999; margin: 2px 0 0; }
+.naver-badge {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: #03c75a; color: #fff; font-weight: 800; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.naver-close-btn {
+  width: 28px; height: 28px; border: none; background: none;
+  font-size: 20px; color: #999; cursor: pointer; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.naver-close-btn:hover { background: #f0f0f0; }
+
+.naver-modal-body {
+  padding: 16px 20px; flex: 1; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.naver-field label {
+  display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px;
+}
+.naver-field input, .naver-field select {
+  width: 100%; padding: 9px 12px; border: 1px solid #d1d5db;
+  border-radius: 10px; font-size: 13px; outline: none; font-family: var(--font);
+  background: #fff;
+}
+.naver-field input:focus, .naver-field select:focus {
+  border-color: #03c75a; box-shadow: 0 0 0 3px rgba(3,199,90,0.1);
+}
+.naver-field-row { display: flex; gap: 10px; }
+
+.naver-img-preview { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.naver-img-preview img {
+  width: 48px; height: 64px; object-fit: cover; border-radius: 8px;
+  border: 1px solid #e5e7eb; flex-shrink: 0;
+}
+.naver-img-more {
+  width: 48px; height: 64px; border-radius: 8px; background: #f3f4f6;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #999; flex-shrink: 0;
+}
+
+.naver-search-row { display: flex; gap: 8px; }
+.naver-search-row input { flex: 1; }
+.naver-btn-primary {
+  padding: 9px 16px; font-size: 12px; font-weight: 600;
+  background: #111; color: #fff; border: none; border-radius: 10px;
+  cursor: pointer; font-family: var(--font);
+}
+.naver-btn-primary:hover:not(:disabled) { background: #333; }
+.naver-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.naver-category-list {
+  margin-top: 8px; max-height: 130px; overflow-y: auto;
+  border: 1px solid #e5e7eb; border-radius: 10px;
+}
+.naver-category-list button {
+  display: block; width: 100%; text-align: left; padding: 8px 12px;
+  font-size: 12px; color: #555; background: none; border: none;
+  border-bottom: 1px solid #f0f0f0; cursor: pointer; font-family: var(--font);
+}
+.naver-category-list button:last-child { border-bottom: none; }
+.naver-category-list button:hover { background: #f9fafb; }
+
+.naver-alert {
+  padding: 10px 14px; border-radius: 10px; font-size: 12px; line-height: 1.5;
+}
+.naver-alert.success { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+.naver-alert.error { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; }
+
+.naver-progress {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: #666;
+}
+.naver-spinner {
+  width: 16px; height: 16px; border: 2px solid #03c75a;
+  border-top-color: transparent; border-radius: 50%;
+  animation: naver-spin 0.8s linear infinite;
+}
+.naver-spinner.small { width: 12px; height: 12px; border-width: 1.5px; }
+@keyframes naver-spin { to { transform: rotate(360deg); } }
+
+.naver-modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 14px 20px; border-top: 1px solid #f0f0f0;
+}
+.naver-btn-outline {
+  padding: 10px 20px; border: 1px solid #d1d5db; border-radius: 10px;
+  background: #fff; color: #111; font-size: 14px; font-weight: 600;
+  cursor: pointer; font-family: var(--font);
+}
+.naver-btn-outline:hover { background: #f5f5f5; }
+.naver-register-btn {
+  padding: 10px 20px; border: none; border-radius: 10px;
+  background: #03c75a; color: #fff; font-size: 14px; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; font-family: var(--font);
+}
+.naver-register-btn:hover:not(:disabled) { background: #02b351; }
+.naver-register-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.naver-status-bar {
+  display: flex; gap: 2px; padding: 10px 20px;
+  background: #f8f9fa; border-bottom: 1px solid #f0f0f0;
+  overflow-x: auto;
+}
+.naver-status-item {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: #999; padding: 4px 8px;
+  border-radius: 6px; white-space: nowrap; flex-shrink: 0;
+}
+.naver-status-item.ok { color: #03c75a; font-weight: 600; }
+.naver-status-item.pending { color: #9ca3af; }
+.naver-status-icon { font-size: 12px; }
+
+.naver-attrs-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px;
+}
+.naver-attr-item { display: flex; flex-direction: column; gap: 4px; }
+.naver-attr-label { font-size: 11px; color: #555; font-weight: 500; }
+.naver-required { color: #ef4444; margin-left: 2px; }
+.naver-attr-item select, .naver-attr-item input {
+  width: 100%; padding: 7px 10px; border: 1px solid #d1d5db;
+  border-radius: 8px; font-size: 12px; outline: none;
+  font-family: var(--font); background: #fff;
+}
+.naver-attr-item select:focus, .naver-attr-item input:focus {
+  border-color: #03c75a; box-shadow: 0 0 0 3px rgba(3,199,90,0.1);
+}
+.naver-hint { font-size: 11px; color: #9ca3af; margin: 4px 0 0; font-style: italic; }
+
+.naver-tags-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.naver-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; background: #ecfdf5; border: 1px solid #a7f3d0;
+  border-radius: 20px; font-size: 12px; color: #065f46;
+}
+.naver-tag button {
+  border: none; background: none; color: #059669; cursor: pointer;
+  font-size: 14px; padding: 0; line-height: 1; font-weight: 700;
+}
+.naver-tag button:hover { color: #dc2626; }
+

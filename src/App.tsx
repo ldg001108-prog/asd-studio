@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
+import NaverRegisterModal from './components/NaverRegisterModal';
 import { generateNukkiShots } from './lib/backgroundRemovalService';
 import { generateModelImage, MODEL_CATEGORIES, type ModelCategory } from './lib/modelGeneratorService';
 import { synthesizeShoeStudio } from './lib/shoeStudioService';
@@ -93,6 +94,7 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const styleInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const [showNaverModal, setShowNaverModal] = useState(false);
 
   useEffect(() => { loadNukkiFolders(); loadModelImages(); loadDetailFolders(); }, []);
 
@@ -467,21 +469,49 @@ function App() {
               {/* Block mode buttons */}
               {templateBlocks.length > 0 && <span className="card-count">{templateBlocks.length}장</span>}
               {templateBlocks.length > 0 && (
+                <button className="card-head-action" title="네이버 스마트스토어 등록" style={{ background: '#03c75a', color: '#fff', borderRadius: 6, fontWeight: 800, fontSize: 11, padding: '2px 6px', border: 'none', cursor: 'pointer' }} onClick={() => setShowNaverModal(true)}>N</button>
+              )}
+              {templateBlocks.length > 0 && (
                 <button className="card-head-action" title="새 탭에서 미리보기" onClick={() => {
-                  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>상세페이지</title><style>body{margin:0;padding:0;background:#fff} .c{max-width:860px;margin:0 auto} .c img{width:100%;display:block}</style></head><body><div class="c">${templateBlocks.map(b => `<img src="${b.src}" />`).join('')}</div></body></html>`;
+                  // Collect HTML from all blocks (image + html iframe)
+                  const blockContents = templateBlocks.map((b) => {
+                    if (b.type === 'html') {
+                      const iframe = document.querySelector(`iframe[data-block-id="${b.id}"]`) as HTMLIFrameElement | null;
+                      if (iframe?.contentDocument) {
+                        return iframe.contentDocument.documentElement.outerHTML;
+                      }
+                      return b.html || '';
+                    }
+                    return `<img src="${b.src}" style="width:100%;display:block" />`;
+                  });
+                  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>상세페이지</title><style>body{margin:0;padding:0;background:#fff} .c{max-width:860px;margin:0 auto} .c img{width:100%;display:block}</style></head><body><div class="c">${blockContents.join('\n')}</div></body></html>`;
                   const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
                   window.open(URL.createObjectURL(blob), '_blank');
                 }}>↗</button>
               )}
               {templateBlocks.length > 0 && (
                 <button className="card-head-action" title="HTML 저장" onClick={async () => {
-                  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${detailProductName} - 상세페이지</title><style>body{margin:0;padding:0;background:#fff} .c{max-width:860px;margin:0 auto} .c img{width:100%;display:block}</style></head><body><div class="c">${templateBlocks.map(b => `<img src="${b.src}" />`).join('')}</div></body></html>`;
+                  const blockContents = templateBlocks.map((b) => {
+                    if (b.type === 'html') {
+                      const iframe = document.querySelector(`iframe[data-block-id="${b.id}"]`) as HTMLIFrameElement | null;
+                      if (iframe?.contentDocument) {
+                        return iframe.contentDocument.documentElement.outerHTML;
+                      }
+                      return b.html || '';
+                    }
+                    return `<img src="${b.src}" style="width:100%;display:block" />`;
+                  });
+                  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${detailProductName} - 상세페이지</title><style>body{margin:0;padding:0;background:#fff} .c{max-width:860px;margin:0 auto} .c img{width:100%;display:block}</style></head><body><div class="c">${blockContents.join('\n')}</div></body></html>`;
                   const folder = `detail-13cut/${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}`;
                   try {
                     await uploadHtmlFile(html, folder, '13cut-detail');
                     await loadDetailFolders();
                     setDetailStatus('✅ HTML 저장 완료');
-                  } catch (e) { console.error('Save failed:', e); }
+                    alert('✅ 상세페이지 HTML 저장 완료!');
+                  } catch (e) {
+                    console.error('Save failed:', e);
+                    alert('❌ 저장 실패: ' + (e as Error).message);
+                  }
                 }}>💾</button>
               )}
               {templateBlocks.length > 0 && <button className="card-head-action" title="초기화" onClick={() => setTemplateBlocks([])}>✕</button>}
@@ -503,7 +533,11 @@ function App() {
                     await uploadHtmlFile(`<!DOCTYPE html>${html}`, folder, '13cut-detail');
                     await loadDetailFolders();
                     setDetailStatus('✅ HTML 저장 완료');
-                  } catch (e) { console.error('Save failed:', e); }
+                    alert('✅ 상세페이지 HTML 저장 완료!');
+                  } catch (e) {
+                    console.error('Save failed:', e);
+                    alert('❌ 저장 실패: ' + (e as Error).message);
+                  }
                 }}>💾</button>
               )}
               {templateHtml && <button className="card-head-action" title="초기화" onClick={() => setTemplateHtml(null)}>✕</button>}
@@ -570,6 +604,7 @@ function App() {
                       {block.type === 'html' ? (
                         <iframe
                           className="block-html-iframe"
+                          data-block-id={block.id}
                           srcDoc={block.html}
                           title={`HTML 블록 ${idx + 1}`}
                           onLoad={e => {
@@ -855,6 +890,24 @@ function App() {
         )}
         {!isModelGenerating && !isSynthesizing && !isDetailGenerating && <span>Supabase · Gemini</span>}
       </div>
+
+      <NaverRegisterModal
+        visible={showNaverModal}
+        onClose={() => setShowNaverModal(false)}
+        images={templateBlocks.filter(b => b.type === 'image').map(b => b.src)}
+        detailHtml={(() => {
+          const contents = templateBlocks.map((b) => {
+            if (b.type === 'html') {
+              const iframe = document.querySelector(`iframe[data-block-id="${b.id}"]`) as HTMLIFrameElement | null;
+              if (iframe?.contentDocument) return iframe.contentDocument.documentElement.outerHTML;
+              return b.html || '';
+            }
+            return `<img src="${b.src}" style="width:100%;display:block" />`;
+          });
+          return contents.join('\n');
+        })()}
+        productName={detailProductName}
+      />
     </div>
   );
 }
