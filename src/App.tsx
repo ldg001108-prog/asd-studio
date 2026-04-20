@@ -629,37 +629,43 @@ function App() {
                   <div
                     key={block.id}
                     className={`block-wrapper${blockDragIdx === idx ? ' block-dragging' : ''}${blockDragOverIdx === idx && blockDragIdx !== idx ? ' block-drag-over' : ''}`}
-                    draggable
-                    onDragStart={e => handleBlockDragStart(e, idx)}
                     onDragOver={e => handleBlockDragOver(e, idx)}
                     onDrop={e => handleBlockDrop(e, idx)}
                     onDragEnd={handleBlockDragEnd}
                   >
                     <div className="block-item">
-                      <div className="block-drag-handle" title="드래그하여 순서 변경">⠿</div>
-                      {block.type === 'html' ? (
-                        <iframe
-                          className="block-html-iframe"
-                          data-block-id={block.id}
-                          srcDoc={block.html}
-                          title={`HTML 블록 ${idx + 1}`}
-                          onLoad={e => {
-                            const iframe = e.currentTarget;
-                            const doc = iframe.contentDocument;
-                            if (doc) {
-                              doc.designMode = 'on';
-                              const resize = () => {
-                                const h = doc.documentElement.scrollHeight;
-                                iframe.style.height = h + 'px';
-                              };
-                              resize();
-                              new MutationObserver(resize).observe(doc.body, { childList: true, subtree: true, characterData: true });
-                            }
-                          }}
-                        />
-                      ) : (
-                        <img src={block.src} alt={`블록 ${idx + 1}`} className="block-img" />
-                      )}
+                      {/* Drag handle — always visible, only THIS element is draggable */}
+                      <div
+                        className="block-drag-handle"
+                        title="드래그하여 순서 변경"
+                        draggable
+                        onDragStart={e => handleBlockDragStart(e, idx)}
+                      >⠿</div>
+                      <div className="block-content">
+                        {block.type === 'html' ? (
+                          <iframe
+                            className="block-html-iframe"
+                            data-block-id={block.id}
+                            srcDoc={block.html}
+                            title={`HTML 블록 ${idx + 1}`}
+                            onLoad={e => {
+                              const iframe = e.currentTarget;
+                              const doc = iframe.contentDocument;
+                              if (doc) {
+                                doc.designMode = 'on';
+                                const resize = () => {
+                                  const h = doc.documentElement.scrollHeight;
+                                  iframe.style.height = h + 'px';
+                                };
+                                resize();
+                                new MutationObserver(resize).observe(doc.body, { childList: true, subtree: true, characterData: true });
+                              }
+                            }}
+                          />
+                        ) : (
+                          <img src={block.src} alt={`블록 ${idx + 1}`} className="block-img" />
+                        )}
+                      </div>
                       <div className="block-actions">
                         <span className="block-badge">{idx + 1}</span>
                         <button className="block-del" onClick={() => setTemplateBlocks(prev => prev.filter(b => b.id !== block.id))}>✕</button>
