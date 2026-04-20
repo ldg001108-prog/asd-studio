@@ -1108,8 +1108,8 @@ function App() {
       <NaverRegisterModal
         visible={showNaverModal}
         onClose={() => setShowNaverModal(false)}
-        images={templateBlocks.filter(b => b.type === 'image').map(b => b.src)}
-        detailHtml={(() => {
+        getImages={() => templateBlocks.filter(b => b.type === 'image').map(b => b.src)}
+        getDetailHtml={() => {
           const contents = templateBlocks.map((b) => {
             if (b.type === 'html') {
               const iframe = document.querySelector(`iframe[data-block-id="${b.id}"]`) as HTMLIFrameElement | null;
@@ -1119,7 +1119,7 @@ function App() {
             return `<img src="${b.src}" style="width:100%;display:block" />`;
           });
           return contents.join('\n');
-        })()}
+        }}
         productName={detailProductName}
       />
     </div>

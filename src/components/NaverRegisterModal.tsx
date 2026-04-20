@@ -3,8 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 interface NaverRegisterModalProps {
   visible: boolean;
   onClose: () => void;
-  images: string[];
-  detailHtml?: string;
+  getImages: () => string[];
+  getDetailHtml: () => string;
   productName: string;
 }
 
@@ -50,8 +50,8 @@ function normalizeCategories(data: any): CategoryResult[] {
 export default function NaverRegisterModal({
   visible,
   onClose,
-  images,
-  detailHtml,
+  getImages,
+  getDetailHtml,
   productName,
 }: NaverRegisterModalProps) {
   const [name, setName] = useState(productName || '');
@@ -73,8 +73,9 @@ export default function NaverRegisterModal({
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
   const [naverConfigured, setNaverConfigured] = useState<boolean | null>(null);
 
-  const statusChecks = useMemo(
-    () => [
+  const statusChecks = useMemo(() => {
+    const imgs = getImages();
+    return [
       { label: '상품명', ok: !!name.trim() },
       { label: '브랜드', ok: !!brandName.trim() },
       { label: '제조사', ok: !!manufacturerName.trim() },
@@ -85,10 +86,9 @@ export default function NaverRegisterModal({
           attributes.filter((a) => a.required).every((a) => a.selectedValue || a.inputValue),
       },
       { label: '태그', ok: tags.length > 0 },
-      { label: '이미지', ok: images.length > 0 },
-    ],
-    [images.length, attributes, brandName, manufacturerName, name, tags.length],
-  );
+      { label: '이미지', ok: imgs.length > 0 },
+    ];
+  }, [getImages, attributes, brandName, manufacturerName, name, tags.length]);
 
   useEffect(() => {
     if (!visible) return;
@@ -176,6 +176,8 @@ export default function NaverRegisterModal({
   };
 
   const handleRegister = async () => {
+    const images = getImages();
+    const detailHtml = getDetailHtml();
     if (!name.trim() || !price.trim() || !selectedCategory) return;
     setIsRegistering(true);
     setProgress('네이버 등록 준비 중...');
@@ -286,12 +288,12 @@ export default function NaverRegisterModal({
           )}
 
           <div className="naver-field">
-            <label>{statusChecks[5].ok ? '✅' : '⬜'} 이미지 ({images.length}장)</label>
+            <label>{statusChecks[5].ok ? '✅' : '⬜'} 이미지 ({getImages().length}장)</label>
             <div className="naver-img-preview">
-              {images.slice(0, 8).map((src, i) => (
+              {getImages().slice(0, 8).map((src, i) => (
                 <img key={`${i}`} src={src} alt={`img-${i}`} />
               ))}
-              {images.length > 8 && <div className="naver-img-more">+{images.length - 8}</div>}
+              {getImages().length > 8 && <div className="naver-img-more">+{getImages().length - 8}</div>}
             </div>
           </div>
 
