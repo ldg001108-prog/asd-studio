@@ -111,6 +111,9 @@ function App() {
   const [aiEditBlockId, setAiEditBlockId] = useState<string | null>(null);
   const [aiEditPrompt, setAiEditPrompt] = useState('');
   const [isAiEditing, setIsAiEditing] = useState(false);
+  const [loadedTemplatePath, setLoadedTemplatePath] = useState<string | null>(() => {
+    try { return localStorage.getItem('asd-template-path') || null; } catch { return null; }
+  });
 
   useEffect(() => { loadNukkiFolders(); loadModelImages(); loadDetailFolders(); }, []);
 
@@ -134,6 +137,16 @@ function App() {
       }
     } catch { /* quota exceeded */ }
   }, [templateHtml]);
+
+  useEffect(() => {
+    try {
+      if (loadedTemplatePath) {
+        localStorage.setItem('asd-template-path', loadedTemplatePath);
+      } else {
+        localStorage.removeItem('asd-template-path');
+      }
+    } catch { /* quota exceeded */ }
+  }, [loadedTemplatePath]);
 
   // ── Data Loading ──
   const loadNukkiFolders = async () => {
@@ -521,6 +534,7 @@ function App() {
                           const doc = parser.parseFromString(text, 'text/html');
                           const imgs = Array.from(doc.querySelectorAll('img'));
                           setTemplateBlocks(imgs.map((img, i) => ({ id: `b${Date.now()}-${i}`, type: 'image' as const, src: img.getAttribute('src') || '' })));
+                          setLoadedTemplatePath(`detail-13cut/${folder.name}/${html.name}`);
                         } catch (e) { console.error('HTML load failed:', e); }
                       }}
                       title="클릭하여 편집기에 로드"
@@ -553,6 +567,7 @@ function App() {
               const doc = parser.parseFromString(text, 'text/html');
               const imgs = Array.from(doc.querySelectorAll('img'));
               setTemplateBlocks(imgs.map((img, i) => ({ id: `b${Date.now()}-${i}`, type: 'image' as const, src: img.getAttribute('src') || '' })));
+              setLoadedTemplatePath(null);
             } catch (e) { console.error('HTML drop failed:', e); }
           }}
         >
@@ -583,7 +598,7 @@ function App() {
                 }}>↗</button>
               )}
               {templateBlocks.length > 0 && (
-                <button className="card-head-action" title="HTML 저장" onClick={async () => {
+                 <button className="card-head-action" title="HTML 저장" onClick={async () => {
                   const blockContents = templateBlocks.map((b) => {
                     if (b.type === 'html') {
                       const iframe = document.querySelector(`iframe[data-block-id="${b.id}"]`) as HTMLIFrameElement | null;
@@ -595,19 +610,35 @@ function App() {
                     return `<img src="${b.src}" style="width:100%;display:block" />`;
                   });
                   const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${detailProductName} - 상세페이지</title><style>body{margin:0;padding:0;background:#fff} .c{max-width:860px;margin:0 auto} .c img{width:100%;display:block}</style></head><body><div class="c">${blockContents.join('\n')}</div></body></html>`;
-                  const folder = `detail-13cut/${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}`;
                   try {
-                    await uploadHtmlFile(html, folder, '13cut-detail');
+                    if (loadedTemplatePath) {
+                      // Overwrite existing template
+                      const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
+                      const { createClient } = await import('@supabase/supabase-js');
+                      const supabase = createClient(
+                        import.meta.env.VITE_SUPABASE_URL || '',
+                        import.meta.env.VITE_SUPABASE_KEY || ''
+                      );
+                      const bucket = import.meta.env.VITE_SUPABASE_BUCKET || 'shoe-studio-generated';
+                      const { error } = await supabase.storage.from(bucket).upload(loadedTemplatePath, blob, {
+                        contentType: 'text/html; charset=utf-8',
+                        upsert: true,
+                      });
+                      if (error) throw error;
+                    } else {
+                      // New template
+                      const folder = `detail-13cut/${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}`;
+                      await uploadHtmlFile(html, folder, '13cut-detail');
+                    }
                     await loadDetailFolders();
-                    setDetailStatus('✅ HTML 저장 완료');
-                    alert('✅ 상세페이지 HTML 저장 완료!');
+                    alert('✅ 상세페이지 저장 완료!');
                   } catch (e) {
                     console.error('Save failed:', e);
                     alert('❌ 저장 실패: ' + (e as Error).message);
                   }
                 }}>💾</button>
               )}
-              {templateBlocks.length > 0 && <button className="card-head-action" title="초기화" onClick={() => setTemplateBlocks([])}>✕</button>}
+              {templateBlocks.length > 0 && <button className="card-head-action" title="초기화" onClick={() => { setTemplateBlocks([]); setLoadedTemplatePath(null); }}>✕</button>}
               {/* HTML edit mode buttons */}
               {templateHtml && (
                 <button className="card-head-action" title="새 탭에서 미리보기" onClick={() => {
