@@ -207,10 +207,12 @@ export async function getCategoryAttributes(categoryId) {
 
 /* ── Image Upload ── */
 async function uploadImageBase64(base64Data) {
-  const matches = String(base64Data || '').match(/^data:image\/(\w+);base64,(.+)$/);
+  // Remove line breaks from base64 string before matching (some encoders insert \n)
+  const cleaned = String(base64Data || '').replace(/\r?\n/g, '');
+  const matches = cleaned.match(/^data:image\/(\w+);base64,([\s\S]+)$/);
   if (!matches) throw new Error('Invalid base64 image.');
   const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
-  const buffer = Buffer.from(matches[2], 'base64');
+  const buffer = Buffer.from(matches[2].replace(/\s/g, ''), 'base64');
   const boundary = `----FormBoundary${Date.now()}`;
   const filename = `asd_${Date.now()}.${ext}`;
   const header = Buffer.from(
@@ -373,14 +375,26 @@ export async function registerFull({
 }) {
   const naverImageUrls = [];
   const naverDetailImageUrls = [];
+
+  // Upload thumbnail: detect base64 vs URL
   if (thumbnailImages?.length) {
-    naverImageUrls.push(await uploadImageBase64(thumbnailImages[0]));
+    try {
+      const thumb = thumbnailImages[0];
+      const thumbUrl = (typeof thumb === 'string' && thumb.startsWith('data:'))
+        ? await uploadImageBase64(thumb)
+        : await uploadImageFromUrl(thumb);
+      naverImageUrls.push(thumbUrl);
+    } catch (e) { console.error('[naver] thumbnail upload failed:', e.message); }
   }
+
+  // Upload detail images: detect base64 vs URL per image
   for (const image of detailImages || []) {
     try {
-      const url = await uploadImageBase64(image);
-      naverDetailImageUrls.push(url);
-      naverImageUrls.push(url);
+      const uploaded = (typeof image === 'string' && image.startsWith('data:'))
+        ? await uploadImageBase64(image)
+        : await uploadImageFromUrl(image);
+      naverDetailImageUrls.push(uploaded);
+      naverImageUrls.push(uploaded);
     } catch (e) { console.error('[naver] detail image upload failed:', e.message); }
   }
   const finalDetail = buildDetailContent(naverDetailImageUrls, stripImageTags(detailContent));
