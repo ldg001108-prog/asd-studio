@@ -15,6 +15,7 @@ import {
   createFolder,
   renameFolder,
   moveImage,
+  deleteFolder,
 } from './lib/storageService';
 
 // ── Types ──
@@ -49,7 +50,18 @@ const ImageTile = memo(({ src, id, selected, square, onSelect, onZoom, onDelete,
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       draggable={!!draggableId}
-      onDragStart={e => { if (draggableId) { e.dataTransfer.setData('application/x-image-move', draggableId); e.dataTransfer.effectAllowed = 'move'; } }}
+      onDragStart={e => {
+        if (!draggableId) return;
+        // If this tile is selected, include all selected nukki paths
+        if (selected) {
+          const allSelected = Array.from(document.querySelectorAll('.img-tile-selected[data-drag-id]')).map(el => (el as HTMLElement).dataset.dragId).filter(Boolean) as string[];
+          e.dataTransfer.setData('application/x-image-move', allSelected.join('\n'));
+        } else {
+          e.dataTransfer.setData('application/x-image-move', draggableId);
+        }
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+      data-drag-id={draggableId}
     >
       <img src={src} alt="" />
       {selected && <div className="img-tile-check">✓</div>}
@@ -240,15 +252,30 @@ function App() {
     if (!moveData) return;
     e.preventDefault();
     e.stopPropagation();
-    const parts = moveData.split('/');
-    if (parts.length < 3) return;
-    const sourceFolder = parts.slice(0, -1).join('/');
+    const paths = moveData.split('\n').filter(Boolean);
     const targetPath = `${storagePrefix}/${targetFolder}`;
-    if (sourceFolder === targetPath) return;
     try {
-      await moveImage(moveData, targetPath);
-      await loadNukkiFolders();
+      let moved = 0;
+      for (const p of paths) {
+        const sourceFolder = p.split('/').slice(0, -1).join('/');
+        if (sourceFolder === targetPath) continue;
+        await moveImage(p, targetPath);
+        moved++;
+      }
+      if (moved > 0) {
+        await loadNukkiFolders();
+        setSelectedImages(new Set());
+      }
     } catch (err: any) { alert(`이동 실패: ${err.message}`); }
+  };
+
+  // ── Folder Delete ──
+  const handleDeleteFolder = async (folderName: string) => {
+    if (!confirm(`'${folderName}' 폴더와 내부 이미지를 모두 삭제하시겠습니까?`)) return;
+    try {
+      await deleteFolder(`nukki/${folderName}`);
+      await loadNukkiFolders();
+    } catch (err: any) { alert(`폴더 삭제 실패: ${err.message}`); }
   };
 
   // ── Folder Drag Reorder ──
@@ -509,6 +536,7 @@ function App() {
                   ) : <span className="folder-name">{folder.name}</span>}
                   <span className="folder-count">{folder.images.length}</span>
                   <button type="button" className="folder-action" onClick={e => { e.stopPropagation(); startRename(folder.name); }}>✎</button>
+                  <button type="button" className="folder-action" style={{ color: '#e74c3c' }} onClick={e => { e.stopPropagation(); handleDeleteFolder(folder.name); }} title="폴더 삭제">🗑</button>
                 </div>
                 {folder.isOpen && (
                   <div className="folder-contents">

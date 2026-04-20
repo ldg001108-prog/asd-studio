@@ -180,6 +180,23 @@ export async function deleteImage(fullPath: string): Promise<void> {
   if (error) throw new Error(`삭제 실패: ${error.message}`);
 }
 
+/** 폴더 삭제 (내부 파일 모두 삭제) */
+export async function deleteFolder(folderPath: string): Promise<void> {
+  const { data: files, error: listErr } = await supabase.storage
+    .from(BUCKET)
+    .list(folderPath);
+
+  if (listErr) throw new Error(`폴더 목록 조회 실패: ${listErr.message}`);
+
+  if (files && files.length > 0) {
+    const paths = files.map(f => `${folderPath}/${f.name}`);
+    const { error: delErr } = await supabase.storage
+      .from(BUCKET)
+      .remove(paths);
+    if (delErr) throw new Error(`파일 삭제 실패: ${delErr.message}`);
+  }
+}
+
 /** HTML 문자열을 Supabase에 .html 파일로 업로드하고 public URL 반환 */
 export async function uploadHtmlFile(
   htmlContent: string,
