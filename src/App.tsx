@@ -83,14 +83,23 @@ function App() {
   const [detailModels, setDetailModels] = useState<Set<string>>(new Set());
   const [detailProductName, setDetailProductName] = useState('Product');
   const [detailFolders, setDetailFolders] = useState<NukkiFolder[]>([]);
-  const [templateBlocks, setTemplateBlocks] = useState<{ id: string; type: 'image' | 'html'; src: string; html?: string }[]>([]);
+  const [templateBlocks, setTemplateBlocks] = useState<{ id: string; type: 'image' | 'html'; src: string; html?: string }[]>(() => {
+    try {
+      const saved = localStorage.getItem('asd-template-blocks');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [templateDragOver, setTemplateDragOver] = useState(false);
   const [blockDragIdx, setBlockDragIdx] = useState<number | null>(null);
   const [blockDragOverIdx, setBlockDragOverIdx] = useState<number | null>(null);
   const blockInputRef = useRef<HTMLInputElement>(null);
   const htmlBlockInputRef = useRef<HTMLInputElement>(null);
   const [insertAtIdx, setInsertAtIdx] = useState(0);
-  const [templateHtml, setTemplateHtml] = useState<string | null>(null);
+  const [templateHtml, setTemplateHtml] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('asd-template-html') || null;
+    } catch { return null; }
+  });
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const editIframeRef = useRef<HTMLIFrameElement>(null);
@@ -104,6 +113,27 @@ function App() {
   const [isAiEditing, setIsAiEditing] = useState(false);
 
   useEffect(() => { loadNukkiFolders(); loadModelImages(); loadDetailFolders(); }, []);
+
+  // ── Auto-save template to localStorage ──
+  useEffect(() => {
+    try {
+      if (templateBlocks.length > 0) {
+        localStorage.setItem('asd-template-blocks', JSON.stringify(templateBlocks));
+      } else {
+        localStorage.removeItem('asd-template-blocks');
+      }
+    } catch { /* quota exceeded */ }
+  }, [templateBlocks]);
+
+  useEffect(() => {
+    try {
+      if (templateHtml) {
+        localStorage.setItem('asd-template-html', templateHtml);
+      } else {
+        localStorage.removeItem('asd-template-html');
+      }
+    } catch { /* quota exceeded */ }
+  }, [templateHtml]);
 
   // ── Data Loading ──
   const loadNukkiFolders = async () => {
