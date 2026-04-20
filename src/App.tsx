@@ -272,7 +272,9 @@ function App() {
         { useGemini3Pro: true, temperature: 0.3 },
       );
       if (result.type === 'image') {
-        setTemplateBlocks(prev => prev.map(b => b.id === aiEditBlockId ? { ...b, src: result.data } : b));
+        // Upload AI result to Supabase instead of keeping base64
+        const url = await uploadDataUrl(result.data, 'detail-edits', 'ai-edit');
+        setTemplateBlocks(prev => prev.map(b => b.id === aiEditBlockId ? { ...b, src: url } : b));
         setAiEditBlockId(null);
         setAiEditPrompt('');
       } else {
@@ -644,19 +646,19 @@ function App() {
               accept="image/*"
               ref={blockInputRef}
               style={{ display: 'none' }}
-              onChange={e => {
+              onChange={async e => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                const reader = new FileReader();
-                reader.onload = () => {
-                  const src = reader.result as string;
+                try {
+                  const url = await uploadProductImage(file);
                   setTemplateBlocks(prev => {
                     const next = [...prev];
-                    next.splice(insertAtIdx, 0, { id: `b${Date.now()}`, type: 'image', src });
+                    next.splice(insertAtIdx, 0, { id: `b${Date.now()}`, type: 'image', src: url });
                     return next;
                   });
-                };
-                reader.readAsDataURL(file);
+                } catch (err: any) {
+                  alert(`이미지 업로드 실패: ${err.message}`);
+                }
                 e.target.value = '';
               }}
             />
