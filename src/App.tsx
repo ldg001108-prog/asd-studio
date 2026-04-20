@@ -513,6 +513,7 @@ function App() {
                       draggable
                       onDragStart={e => e.dataTransfer.setData('text/plain', html.url)}
                       onClick={async () => {
+                        if (templateBlocks.length > 0 && !confirm('현재 편집 중인 템플릿이 있습니다. 새로 불러오시겠습니까?')) return;
                         try {
                           const res = await fetch(html.url);
                           const text = await res.text();
