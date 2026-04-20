@@ -527,7 +527,7 @@ function App() {
                       onDragStart={e => e.dataTransfer.setData('text/plain', html.url)}
                       onClick={async () => {
                         try {
-                          const res = await fetch(html.url);
+                          const res = await fetch(html.url + '?t=' + Date.now(), { cache: 'no-store' });
                           const text = await res.text();
                           const parser = new DOMParser();
                           const doc = parser.parseFromString(text, 'text/html');
