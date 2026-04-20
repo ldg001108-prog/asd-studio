@@ -211,3 +211,30 @@ export function urlToPath(publicUrl: string): string {
   if (idx === -1) return publicUrl;
   return publicUrl.slice(idx + marker.length);
 }
+
+/** 파일을 다른 폴더로 이동 (download → upload → delete) */
+export async function moveImage(
+  oldPath: string,
+  newFolder: string,
+): Promise<string> {
+  const fileName = oldPath.split('/').pop() || oldPath;
+  const newPath = `${newFolder}/${fileName}`;
+
+  // Download
+  const { data: blob, error: dlErr } = await supabase.storage
+    .from(BUCKET)
+    .download(oldPath);
+  if (dlErr || !blob) throw new Error(`다운로드 실패: ${dlErr?.message}`);
+
+  // Upload to new location
+  const { error: upErr } = await supabase.storage
+    .from(BUCKET)
+    .upload(newPath, blob, { upsert: true });
+  if (upErr) throw new Error(`업로드 실패: ${upErr.message}`);
+
+  // Delete old
+  await supabase.storage.from(BUCKET).remove([oldPath]);
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(newPath);
+  return data.publicUrl;
+}

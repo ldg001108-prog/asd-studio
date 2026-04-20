@@ -14,6 +14,7 @@ import {
   listFolders,
   createFolder,
   renameFolder,
+  moveImage,
 } from './lib/storageService';
 
 // ── Types ──
@@ -23,9 +24,10 @@ type AutoStatus = 'idle' | 'uploading' | 'generating' | 'saving' | 'done' | 'err
 type ModalType = 'model-gen' | 'model-storage' | 'synthesis' | 'detail-13cut' | null;
 
 // ── Image Tile (extracted, memo'd to prevent re-mount on parent render) ──
-const ImageTile = memo(({ src, id, selected, square, onSelect, onZoom, onDelete }: {
+const ImageTile = memo(({ src, id, selected, square, onSelect, onZoom, onDelete, draggableId }: {
   src: string; id: string; selected: boolean; square?: boolean;
   onSelect: (id: string) => void; onZoom: (url: string) => void; onDelete?: () => void;
+  draggableId?: string;
 }) => {
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -46,6 +48,8 @@ const ImageTile = memo(({ src, id, selected, square, onSelect, onZoom, onDelete 
       className={`img-tile ${square ? 'img-tile-square' : ''} ${selected ? 'img-tile-selected' : ''}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      draggable={!!draggableId}
+      onDragStart={e => { if (draggableId) { e.dataTransfer.setData('application/x-image-move', draggableId); e.dataTransfer.effectAllowed = 'move'; } }}
     >
       <img src={src} alt="" />
       {selected && <div className="img-tile-check">✓</div>}
@@ -229,6 +233,23 @@ function App() {
   };
   const handleNewFolder = async () => { try { await createFolder(`nukki/folder_${Date.now().toString(36).slice(-4)}`); await loadNukkiFolders(); } catch (e) { console.error(e); } };
   const handleDeleteNukkiImage = async (folder: string, img: string) => { try { await deleteImage(`nukki/${folder}/${img}`); setNukkiFolders(p => p.map(f => f.name === folder ? { ...f, images: f.images.filter(i => i.name !== img) } : f)); } catch (e) { console.error(e); } };
+
+  // ── Image Move Between Folders ──
+  const handleImageDropOnFolder = async (e: React.DragEvent, targetFolder: string, storagePrefix: string) => {
+    const moveData = e.dataTransfer.getData('application/x-image-move');
+    if (!moveData) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const parts = moveData.split('/');
+    if (parts.length < 3) return;
+    const sourceFolder = parts.slice(0, -1).join('/');
+    const targetPath = `${storagePrefix}/${targetFolder}`;
+    if (sourceFolder === targetPath) return;
+    try {
+      await moveImage(moveData, targetPath);
+      await loadNukkiFolders();
+    } catch (err: any) { alert(`이동 실패: ${err.message}`); }
+  };
 
   // ── Folder Drag Reorder ──
   const handleFolderDragStart = (idx: number) => setDragIdx(idx);
@@ -476,9 +497,9 @@ function App() {
                 className={`folder-item ${dragOverIdx === idx ? 'folder-drag-over' : ''} ${dragIdx === idx ? 'folder-dragging' : ''}`}
                 draggable
                 onDragStart={() => handleFolderDragStart(idx)}
-                onDragOver={e => handleFolderDragOver(e, idx)}
+                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverIdx(idx); }}
                 onDragEnd={handleFolderDragEnd}
-                onDrop={e => { e.preventDefault(); handleFolderDragEnd(); }}
+                onDrop={e => { const md = e.dataTransfer.getData('application/x-image-move'); if (md) { handleImageDropOnFolder(e, folder.name, 'nukki'); } else { e.preventDefault(); handleFolderDragEnd(); } }}
               >
                 <div className="folder-row" onClick={() => toggleFolder(folder.name)}>
                   <div className="folder-grip" title="드래그하여 순서 변경">⠿</div>
@@ -494,7 +515,7 @@ function App() {
                     {folder.images.length === 0 ? <div className="folder-empty-inner">이미지 없음</div> : (
                       <div className="folder-square-grid">
                         {folder.images.map(img => (
-                          <ImageTile key={img.name} src={img.url} id={`nukki-${folder.name}-${img.name}`} selected={selectedImages.has(`nukki-${folder.name}-${img.name}`)} square onSelect={tileSelect} onZoom={tileZoom} onDelete={() => handleDeleteNukkiImage(folder.name, img.name)} />
+                          <ImageTile key={img.name} src={img.url} id={`nukki-${folder.name}-${img.name}`} selected={selectedImages.has(`nukki-${folder.name}-${img.name}`)} square onSelect={tileSelect} onZoom={tileZoom} onDelete={() => handleDeleteNukkiImage(folder.name, img.name)} draggableId={`nukki/${folder.name}/${img.name}`} />
                         ))}
                       </div>
                     )}
