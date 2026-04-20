@@ -230,13 +230,42 @@ async function uploadImageBase64(base64Data) {
 }
 
 async function uploadImageFromUrl(imageUrl) {
-  const { response, data } = await commerceRequest('/v1/product-images/upload', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imageUrls: [imageUrl] }),
-  });
-  if (!response.ok || !data.images?.length) throw new Error(`Image upload by URL error: ${JSON.stringify(data)}`);
-  return data.images[0].url;
+  // Fetch the image ourselves and upload as binary multipart.
+  // Relying on Naver's server to fetch from Supabase/external URLs is unreliable.
+  try {
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
+    const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+    const extMatch = contentType.match(/image\/(\w+)/);
+    const rawExt = extMatch ? extMatch[1] : 'jpg';
+    const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+    const arrayBuffer = await imgRes.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const boundary = `----FormBoundary${Date.now()}`;
+    const filename = `asd_${Date.now()}.${ext}`;
+    const header = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="imageFiles"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`,
+    );
+    const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
+    const body = Buffer.concat([header, buffer, footer]);
+    const { response, data } = await commerceRequest('/v1/product-images/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      body,
+    });
+    if (!response.ok || !data.images?.length) throw new Error(`Image upload error: ${JSON.stringify(data)}`);
+    return data.images[0].url;
+  } catch (fetchErr) {
+    // Fallback: let Naver download directly from the URL
+    console.warn(`[naver] direct fetch failed (${fetchErr.message}), trying URL method...`);
+    const { response, data } = await commerceRequest('/v1/product-images/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageUrls: [imageUrl] }),
+    });
+    if (!response.ok || !data.images?.length) throw new Error(`Image upload by URL error: ${JSON.stringify(data)}`);
+    return data.images[0].url;
+  }
 }
 
 /* ── Product Build & Create ── */
