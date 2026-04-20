@@ -561,6 +561,116 @@ input { font-family: var(--font); }
   border-radius: var(--r-sm);
 }
 
+/* ── AI Edit Button ── */
+.block-ai-edit {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.8);
+  color: white;
+  font-size: 9px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur) var(--ease);
+}
+
+.block-ai-edit:hover {
+  background: var(--c-accent);
+}
+
+/* ── AI Edit Overlay ── */
+.ai-edit-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  padding: var(--sp-12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+}
+
+.ai-edit-loading {
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.ai-edit-form {
+  display: flex;
+  gap: var(--sp-6);
+  width: 100%;
+  max-width: 500px;
+}
+
+.ai-edit-input {
+  flex: 1;
+  padding: var(--sp-6) var(--sp-12);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: var(--r-md);
+  background: rgba(255,255,255,0.15);
+  color: white;
+  font-size: 12px;
+  font-family: var(--font);
+  outline: none;
+}
+
+.ai-edit-input::placeholder {
+  color: rgba(255,255,255,0.5);
+}
+
+.ai-edit-input:focus {
+  border-color: var(--c-accent);
+}
+
+.ai-edit-submit {
+  padding: var(--sp-6) var(--sp-12);
+  border: none;
+  border-radius: var(--r-md);
+  background: var(--c-accent);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ai-edit-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ai-edit-cancel {
+  padding: var(--sp-6) var(--sp-12);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ai-edit-cancel:hover {
+  background: rgba(255,255,255,0.1);
+}
+
 .card-head-action {
   width: 22px;
   height: 22px;

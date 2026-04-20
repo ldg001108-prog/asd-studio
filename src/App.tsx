@@ -4,6 +4,7 @@ import { generateNukkiShots } from './lib/backgroundRemovalService';
 import { generateModelImage, MODEL_CATEGORIES, type ModelCategory } from './lib/modelGeneratorService';
 import { synthesizeShoeStudio } from './lib/shoeStudioService';
 import { generateDetailPage, assembleDetailPageHTML, type DetailPageResult } from './lib/detailPageService';
+import { callGeminiSecure, urlToGeminiPart } from './lib/geminiClient';
 import {
   uploadProductImage,
   uploadDataUrl,
@@ -97,6 +98,10 @@ function App() {
   const styleInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [showNaverModal, setShowNaverModal] = useState(false);
+  // AI 이미지 편집
+  const [aiEditBlockId, setAiEditBlockId] = useState<string | null>(null);
+  const [aiEditPrompt, setAiEditPrompt] = useState('');
+  const [isAiEditing, setIsAiEditing] = useState(false);
 
   useEffect(() => { loadNukkiFolders(); loadModelImages(); loadDetailFolders(); }, []);
 
@@ -221,6 +226,34 @@ function App() {
     setBlockDragIdx(null); setBlockDragOverIdx(null);
   };
   const handleBlockDragEnd = () => { setBlockDragIdx(null); setBlockDragOverIdx(null); };
+
+  // ── AI Image Edit ──
+  const handleAiEditBlock = async () => {
+    if (!aiEditBlockId || !aiEditPrompt.trim() || isAiEditing) return;
+    const block = templateBlocks.find(b => b.id === aiEditBlockId);
+    if (!block || block.type !== 'image') return;
+
+    setIsAiEditing(true);
+    try {
+      const imgPart = await urlToGeminiPart(block.src);
+      const result = await callGeminiSecure(
+        `Edit this image according to the following instruction. Keep everything else EXACTLY the same — same layout, same design, same colors, same style. ONLY change what is specifically requested:\n\n${aiEditPrompt.trim()}`,
+        [imgPart],
+        { useGemini3Pro: true, temperature: 0.3 },
+      );
+      if (result.type === 'image') {
+        setTemplateBlocks(prev => prev.map(b => b.id === aiEditBlockId ? { ...b, src: result.data } : b));
+        setAiEditBlockId(null);
+        setAiEditPrompt('');
+      } else {
+        alert('이미지 편집 실패: AI가 이미지를 반환하지 않았습니다.');
+      }
+    } catch (err: any) {
+      alert(`AI 편집 실패: ${err.message}`);
+    } finally {
+      setIsAiEditing(false);
+    }
+  };
 
   // ── Model Gen ──
   const handleStyleUpload = (files: FileList | null) => {
@@ -668,8 +701,36 @@ function App() {
                       </div>
                       <div className="block-actions">
                         <span className="block-badge">{idx + 1}</span>
+                        {block.type === 'image' && (
+                          <button
+                            className="block-ai-edit"
+                            title="AI로 텍스트/이미지 편집"
+                            onClick={() => { setAiEditBlockId(block.id); setAiEditPrompt(''); }}
+                          >✏️</button>
+                        )}
                         <button className="block-del" onClick={() => setTemplateBlocks(prev => prev.filter(b => b.id !== block.id))}>✕</button>
                       </div>
+                      {/* AI Edit prompt inline */}
+                      {aiEditBlockId === block.id && (
+                        <div className="ai-edit-overlay">
+                          {isAiEditing ? (
+                            <div className="ai-edit-loading">🤖 AI 편집 중...</div>
+                          ) : (
+                            <div className="ai-edit-form">
+                              <input
+                                className="ai-edit-input"
+                                placeholder="예: 글씨를 '배러밸류'로 변경"
+                                value={aiEditPrompt}
+                                onChange={e => setAiEditPrompt(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleAiEditBlock(); }}
+                                autoFocus
+                              />
+                              <button className="ai-edit-submit" onClick={handleAiEditBlock} disabled={!aiEditPrompt.trim()}>적용</button>
+                              <button className="ai-edit-cancel" onClick={() => setAiEditBlockId(null)}>취소</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                     {/* Insert buttons between blocks */}
                     <div className="block-insert-group">
