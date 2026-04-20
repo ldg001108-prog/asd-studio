@@ -84,6 +84,8 @@ function App() {
   const [detailFolders, setDetailFolders] = useState<NukkiFolder[]>([]);
   const [templateBlocks, setTemplateBlocks] = useState<{ id: string; type: 'image' | 'html'; src: string; html?: string }[]>([]);
   const [templateDragOver, setTemplateDragOver] = useState(false);
+  const [blockDragIdx, setBlockDragIdx] = useState<number | null>(null);
+  const [blockDragOverIdx, setBlockDragOverIdx] = useState<number | null>(null);
   const blockInputRef = useRef<HTMLInputElement>(null);
   const htmlBlockInputRef = useRef<HTMLInputElement>(null);
   const [insertAtIdx, setInsertAtIdx] = useState(0);
@@ -194,6 +196,31 @@ function App() {
     }
     setDragIdx(null); setDragOverIdx(null);
   };
+
+  // ── Block Drag Reorder ──
+  const handleBlockDragStart = (e: React.DragEvent, idx: number) => {
+    setBlockDragIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const handleBlockDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (idx !== blockDragIdx) setBlockDragOverIdx(idx);
+  };
+  const handleBlockDrop = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (blockDragIdx !== null && blockDragIdx !== idx) {
+      setTemplateBlocks(prev => {
+        const arr = [...prev];
+        const [moved] = arr.splice(blockDragIdx, 1);
+        arr.splice(idx, 0, moved);
+        return arr;
+      });
+    }
+    setBlockDragIdx(null); setBlockDragOverIdx(null);
+  };
+  const handleBlockDragEnd = () => { setBlockDragIdx(null); setBlockDragOverIdx(null); };
 
   // ── Model Gen ──
   const handleStyleUpload = (files: FileList | null) => {
@@ -599,8 +626,17 @@ function App() {
                   <button className="block-insert-btn" onClick={() => { setInsertAtIdx(0); htmlBlockInputRef.current?.click(); }}>📄 HTML 추가</button>
                 </div>
                 {templateBlocks.map((block, idx) => (
-                  <div key={block.id}>
+                  <div
+                    key={block.id}
+                    className={`block-wrapper${blockDragIdx === idx ? ' block-dragging' : ''}${blockDragOverIdx === idx && blockDragIdx !== idx ? ' block-drag-over' : ''}`}
+                    draggable
+                    onDragStart={e => handleBlockDragStart(e, idx)}
+                    onDragOver={e => handleBlockDragOver(e, idx)}
+                    onDrop={e => handleBlockDrop(e, idx)}
+                    onDragEnd={handleBlockDragEnd}
+                  >
                     <div className="block-item">
+                      <div className="block-drag-handle" title="드래그하여 순서 변경">⠿</div>
                       {block.type === 'html' ? (
                         <iframe
                           className="block-html-iframe"
@@ -612,7 +648,6 @@ function App() {
                             const doc = iframe.contentDocument;
                             if (doc) {
                               doc.designMode = 'on';
-                              // Auto-resize iframe to content height
                               const resize = () => {
                                 const h = doc.documentElement.scrollHeight;
                                 iframe.style.height = h + 'px';

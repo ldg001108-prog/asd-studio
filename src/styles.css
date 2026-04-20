@@ -412,6 +412,50 @@ input { font-family: var(--font); }
   align-items: stretch;
 }
 
+/* ── Block Wrapper (drag container) ── */
+.block-wrapper {
+  position: relative;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.block-wrapper.block-dragging {
+  opacity: 0.35;
+}
+
+.block-wrapper.block-drag-over {
+  border-top: 3px solid var(--c-accent);
+}
+
+.block-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 3px 10px;
+  font-size: 14px;
+  color: var(--c-gray-400);
+  cursor: grab;
+  background: rgba(255,255,255,0.85);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
+  line-height: 1;
+  user-select: none;
+}
+
+.block-wrapper:hover .block-drag-handle {
+  opacity: 1;
+}
+
+.block-drag-handle:hover {
+  color: var(--c-gray-700);
+}
+
+.block-drag-handle:active {
+  cursor: grabbing;
+}
+
 .block-item {
   position: relative;
   width: 100%;
