@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import NaverRegisterModal from './components/NaverRegisterModal';
+import ImagePickerModal from './components/ImagePickerModal';
+import { detectWhiteZones, compositeImageOnZone, type WhiteZone } from './lib/whiteZoneDetector';
 import { generateNukkiShots } from './lib/backgroundRemovalService';
 import { generateModelImage, MODEL_CATEGORIES, type ModelCategory } from './lib/modelGeneratorService';
 import { synthesizeShoeStudio } from './lib/shoeStudioService';
@@ -127,11 +129,14 @@ function App() {
   const [aiEditBlockId, setAiEditBlockId] = useState<string | null>(null);
   const [aiEditPrompt, setAiEditPrompt] = useState('');
   const [isAiEditing, setIsAiEditing] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [blockZonesMap, setBlockZonesMap] = useState<Record<string, { zones: WhiteZone[]; imgW: number; imgH: number }>>({}); 
+  const [activeZone, setActiveZone] = useState<{ blockId: string; zoneIdx: number } | null>(null);
   const [loadedTemplatePath, setLoadedTemplatePath] = useState<string | null>(() => {
     try { return localStorage.getItem('asd-template-path') || null; } catch { return null; }
   });
 
-  useEffect(() => { loadNukkiFolders(); loadModelImages(); loadDetailFolders(); }, []);
+  useEffect(() => { loadNukkiFolders(); loadModelImages(); loadDetailFolders(); loadSynthesisImages(); }, []);
 
   // ── Auto-save template to localStorage ──
   useEffect(() => {
@@ -345,6 +350,91 @@ function App() {
       alert(`AI 편집 실패: ${err.message}`);
     } finally {
       setIsAiEditing(false);
+    }
+  };
+
+  // ── Capture Detail Page as Image ──
+  const handleCaptureAsImage = async () => {
+    if (isCapturing) return;
+    setIsCapturing(true);
+    try {
+      const WIDTH = 860;
+      if (templateBlocks.length > 0) {
+        const items: { img: HTMLImageElement; height: number }[] = [];
+        for (const block of templateBlocks) {
+          if (block.type === 'image' && block.src) {
+            try {
+              const res = await fetch(block.src);
+              const blob = await res.blob();
+              const blobUrl = URL.createObjectURL(blob);
+              const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const i = new Image();
+                i.onload = () => { URL.revokeObjectURL(blobUrl); resolve(i); };
+                i.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('Image load failed')); };
+                i.src = blobUrl;
+              });
+              const scale = WIDTH / img.naturalWidth;
+              items.push({ img, height: img.naturalHeight * scale });
+            } catch (e) { console.warn('Image load failed:', block.src, e); }
+          } else if (block.type === 'html') {
+            const iframe = document.querySelector(`iframe[data-block-id="${block.id}"]`) as HTMLIFrameElement | null;
+            if (iframe?.contentDocument?.body) {
+              try {
+                const html2canvas = (await import('html2canvas')).default;
+                const cv = await html2canvas(iframe.contentDocument.body, { width: WIDTH, scale: 1, useCORS: true, allowTaint: true });
+                const img = await new Promise<HTMLImageElement>((resolve) => {
+                  const i = new Image(); i.onload = () => resolve(i); i.src = cv.toDataURL();
+                });
+                const scale = WIDTH / img.naturalWidth;
+                items.push({ img, height: img.naturalHeight * scale });
+              } catch (e) { console.warn('HTML block capture failed:', e); }
+            }
+          }
+        }
+        if (items.length === 0) { alert('캡처할 이미지가 없습니다.'); return; }
+        const totalHeight = items.reduce((sum, item) => sum + Math.round(item.height), 0);
+        const canvas = document.createElement('canvas');
+        canvas.width = WIDTH;
+        canvas.height = totalHeight;
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, WIDTH, totalHeight);
+        let y = 0;
+        for (const { img, height } of items) {
+          const h = Math.round(height);
+          ctx.drawImage(img, 0, y, WIDTH, h);
+          y += h;
+        }
+        canvas.toBlob(blob => {
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `상세페이지_${new Date().toISOString().slice(0, 10)}.png`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }, 'image/png');
+      } else if (templateHtml) {
+        const iframe = editIframeRef.current;
+        if (iframe?.contentDocument?.body) {
+          const html2canvas = (await import('html2canvas')).default;
+          const canvas = await html2canvas(iframe.contentDocument.body, { width: WIDTH, scale: 1, useCORS: true, allowTaint: true });
+          canvas.toBlob(blob => {
+            if (!blob) return;
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `상세페이지_${new Date().toISOString().slice(0, 10)}.png`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }, 'image/png');
+        }
+      }
+    } catch (err: any) {
+      alert(`캡처 실패: ${err.message}`);
+      console.error('Capture error:', err);
+    } finally {
+      setIsCapturing(false);
     }
   };
 
@@ -686,6 +776,11 @@ function App() {
                   }
                 }}>💾</button>
               )}
+              {templateBlocks.length > 0 && (
+                <button className="card-head-action" title="이미지로 캡처" onClick={handleCaptureAsImage} disabled={isCapturing} style={isCapturing ? { opacity: 0.5 } : undefined}>
+                  {isCapturing ? '⏳' : '📷'}
+                </button>
+              )}
               {templateBlocks.length > 0 && <button className="card-head-action" title="초기화" onClick={() => { setTemplateBlocks([]); setLoadedTemplatePath(null); }}>✕</button>}
               {/* HTML edit mode buttons */}
               {templateHtml && (
@@ -711,6 +806,11 @@ function App() {
                     alert('❌ 저장 실패: ' + (e as Error).message);
                   }
                 }}>💾</button>
+              )}
+              {templateHtml && (
+                <button className="card-head-action" title="이미지로 캡처" onClick={handleCaptureAsImage} disabled={isCapturing} style={isCapturing ? { opacity: 0.5 } : undefined}>
+                  {isCapturing ? '⏳' : '📷'}
+                </button>
               )}
               {templateHtml && <button className="card-head-action" title="초기화" onClick={() => setTemplateHtml(null)}>✕</button>}
               {/* Paste HTML button (always visible when no content) */}
@@ -808,11 +908,54 @@ function App() {
                             }}
                           />
                         ) : (
-                          <img src={block.src} alt={`블록 ${idx + 1}`} className="block-img" />
+                          <div style={{ position: 'relative' }}>
+                            <img
+                              src={block.src}
+                              alt={`블록 ${idx + 1}`}
+                              className="block-img"
+                              onLoad={async (e) => {
+                                const src = (e.target as HTMLImageElement).src;
+                                if (blockZonesMap[block.id]) return;
+                                try {
+                                  const result = await detectWhiteZones(src);
+                                  if (result.zones.length > 0) {
+                                    setBlockZonesMap(prev => ({ ...prev, [block.id]: result }));
+                                  }
+                                } catch { /* ignore */ }
+                              }}
+                            />
+                            {blockZonesMap[block.id]?.zones.map((zone, zi) => {
+                              const zd = blockZonesMap[block.id];
+                              return (
+                                <div
+                                  key={zi}
+                                  onClick={(e) => { e.stopPropagation(); setActiveZone({ blockId: block.id, zoneIdx: zi }); }}
+                                  style={{
+                                    position: 'absolute',
+                                    left: `${(zone.x / zd.imgW) * 100}%`,
+                                    top: `${(zone.y / zd.imgH) * 100}%`,
+                                    width: `${(zone.w / zd.imgW) * 100}%`,
+                                    height: `${(zone.h / zd.imgH) * 100}%`,
+                                    border: '2px dashed rgba(212,175,55,0.5)',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    background: 'rgba(212,175,55,0.04)',
+                                    transition: 'all 0.2s',
+                                  }}
+                                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(212,175,55,0.12)'; e.currentTarget.style.borderColor = '#d4af37'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(212,175,55,0.04)'; e.currentTarget.style.borderColor = 'rgba(212,175,55,0.5)'; }}
+                                >
+                                  <span style={{ fontSize: '1.6rem', opacity: 0.5, pointerEvents: 'none', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))' }}>📷</span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                       <div className="block-actions">
                         <span className="block-badge">{idx + 1}</span>
+
                         {block.type === 'image' && (
                           <button
                             className="block-ai-edit"
@@ -1121,6 +1264,32 @@ function App() {
           return contents.join('\n');
         }}
         productName={detailProductName}
+      />
+
+      {/* ══ Image Picker Modal (zone click → pick from Supabase) ══ */}
+      <ImagePickerModal
+        visible={!!activeZone}
+        onClose={() => setActiveZone(null)}
+        nukkiImages={nukkiFolders.flatMap(f => f.images.map(i => ({ name: i.name, url: i.url })))}
+        modelImages={modelImages}
+        synthesisImages={synthesisImages}
+        onSelect={async (imageUrl) => {
+          if (!activeZone) return;
+          const { blockId, zoneIdx } = activeZone;
+          const block = templateBlocks.find(b => b.id === blockId);
+          const zd = blockZonesMap[blockId];
+          if (!block || !zd) return;
+          const zone = zd.zones[zoneIdx];
+          try {
+            const dataUrl = await compositeImageOnZone(block.src, imageUrl, zone);
+            const url = await uploadDataUrl(dataUrl, 'detail-edits', 'photo-overlay');
+            setTemplateBlocks(prev => prev.map(b => b.id === blockId ? { ...b, src: url } : b));
+            setBlockZonesMap(prev => { const n = { ...prev }; delete n[blockId]; return n; });
+            setActiveZone(null);
+          } catch (err: any) {
+            alert('사진 합성 실패: ' + err.message);
+          }
+        }}
       />
     </div>
   );
